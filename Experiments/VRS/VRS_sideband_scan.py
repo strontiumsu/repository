@@ -103,9 +103,9 @@ class VRS_sideband_scan_exp(Scan1D, TimeScan, EnvExperiment):
     def prepare(self):
         #prepare/initialize mot hardware and camera
         
-        # self.MOTs.prepare_aoms()
-        # self.MOTs.prepare_coils()
-        # self.Camera.camera_init()
+        self.MOTs.prepare_aoms()
+        self.MOTs.prepare_coils()
+        self.Camera.camera_init()
         self.Bragg.prepare_aoms()
         # register model with scan framework
         
@@ -160,27 +160,27 @@ class VRS_sideband_scan_exp(Scan1D, TimeScan, EnvExperiment):
         self.core.reset()
         self.ttl1.output()
         self.ttl1.off()
-        # self.MOTs.init_coils()
-        # self.MOTs.init_ttls()
-        # self.MOTs.init_aoms(on=False)
+        self.MOTs.init_coils()
+        self.MOTs.init_ttls()
+        self.MOTs.init_aoms(on=False)
         self.Bragg.init_aoms(on=True)
 
-        # self.Bragg.AOMs_off(["Bragg1", "Bragg2"])
-        # self.MOTs.set_current_dir(0)
-        # delay(10*ms)
-        # self.MOTs.take_background_image_exp(self.Camera)
-        # self.MOTs.atom_source_on()
-        # delay(100*ms)
-        # self.MOTs.AOMs_on(['3D', "3P0_repump", "3P2_repump"])
-        # delay(200*ms)
+        self.Bragg.AOMs_off(["Bragg1", "Bragg2"])
+        self.MOTs.set_current_dir(0)
+        delay(10*ms)
+        self.MOTs.take_background_image_exp(self.Camera)
+        self.MOTs.atom_source_on()
+        delay(100*ms)
+        self.MOTs.AOMs_on(['3D', "3P0_repump", "3P2_repump"])
+        delay(200*ms)
 
-        # self.MOTs.AOMs_off(['3D', "3P0_repump", "3P2_repump"])
-        # self.MOTs.atom_source_off()
+        self.MOTs.AOMs_off(['3D', "3P0_repump", "3P2_repump"])
+        self.MOTs.atom_source_off()
         
         self.core.wait_until_mu(now_mu())
      
-    # def before_measure(self, point, measurement):
-    #     self.Camera.arm()
+    def before_measure(self, point, measurement):
+        self.Camera.arm()
         
     @kernel
     def measure(self, point):
@@ -191,26 +191,26 @@ class VRS_sideband_scan_exp(Scan1D, TimeScan, EnvExperiment):
         delay(1 * ms)
 
         # before this point is just for preparing the RAM and RIGOL
-        # self.core.break_realtime()
-        # delay(100*ms)
-        # self.MOTs.AOMs_off(self.MOTs.AOMs)
-        # delay(50*ms)
+        self.core.break_realtime()
+        delay(100*ms)
+        self.MOTs.AOMs_off(self.MOTs.AOMs)
+        delay(50*ms)
 
         self.run_exp(point)
         
         
-        # self.MOTs.take_MOT_image(self.Camera) # image after variable drop time
-        # delay(5*ms)
+        self.MOTs.take_MOT_image(self.Camera) # image after variable drop time
+        delay(5*ms)
         
         self.scan_dds.set_cfr1(ram_enable=0)
         self.scan_dds.cpld.io_update.pulse_mu(8)
 
-        # delay(50*ms)
-        # self.Camera.process_image(bg_sub=True)
-        # delay(400*ms)
+        delay(50*ms)
+        self.Camera.process_image(bg_sub=True)
+        delay(400*ms)
         self.core.wait_until_mu(now_mu())
-        # delay(200*ms)
-        # self.MOTs.AOMs_off(['3P0_repump', '3P2_repump', '3D', "Probe"])
+        delay(200*ms)
+        self.MOTs.AOMs_off(['3P0_repump', '3P2_repump', '3D', "Probe"])
         delay(300*ms)
 
         self.core.wait_until_mu(now_mu())
@@ -219,11 +219,11 @@ class VRS_sideband_scan_exp(Scan1D, TimeScan, EnvExperiment):
     
     @kernel
     def run_exp(self, delay_time):
-        # self.MOTs.rMOT_pulse()
+        self.MOTs.rMOT_pulse()
         
-        # self.MOTs.set_current_dir(1)
-        # self.MOTs.set_current(0.2)
-        # delay(self.dipole_load_time)
+        self.MOTs.set_current_dir(1)
+        self.MOTs.set_current(0.2)
+        delay(self.dipole_load_time)
         
         for _ in range(int(self.pulses)):
             with parallel:
@@ -239,14 +239,14 @@ class VRS_sideband_scan_exp(Scan1D, TimeScan, EnvExperiment):
         
 
     
-    # @kernel
-    # def after_scan(self):
-    #     self.core.break_realtime()
-    #     self.core.wait_until_mu(now_mu())
-    #     delay(100*ms)
-    #     self.MOTs.AOMs_on(self.MOTs.AOMs)
-    #     delay(10*ms)
-    #     self.MOTs.atom_source_on()
+    @kernel
+    def after_scan(self):
+        self.core.break_realtime()
+        self.core.wait_until_mu(now_mu())
+        delay(100*ms)
+        self.MOTs.AOMs_on(self.MOTs.AOMs)
+        delay(10*ms)
+        self.MOTs.atom_source_on()
         
     # @kernel    
     # def log_time(self):
