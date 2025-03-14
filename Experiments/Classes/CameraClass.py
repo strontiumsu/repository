@@ -34,14 +34,14 @@ class _Camera(EnvExperiment):
         # 
         self.setattr_argument("Exposure_Time",NumberValue(1.5*1e-3,min=0.5e-3,max=100*1e-3,scale=1e-3,
                       unit="ms"),"Detection")        
-        self.setattr_argument("Hardware_Gain",NumberValue(250,min=0,max=350,scale=1
+        self.setattr_argument("Hardware_Gain",NumberValue(150,min=0,max=350,scale=1
                       ),"Detection")
         
         self.setattr_argument("Median_Filter",BooleanValue(False),"Detection")
         self.setattr_argument("Gaussian_Filter",BooleanValue(False),"Detection")
                 
-        self.xsize = 170
-        self.ysize = 112
+        self.xsize = 314
+        self.ysize = 264
         self.current_image = np.zeros((self.xsize, self.ysize)) 
         self.background_image = np.zeros((self.xsize, self.ysize)) 
         
@@ -74,12 +74,20 @@ class _Camera(EnvExperiment):
         self.x3 = 500
         
         # 689 horisontal push
-        self.ycen = 150
-        self.xcen = 98
+        self.ycen = 115
+        self.xcen = 180
         self.xydev = 35
-        self.xdev1 = 35
-        self.xdev2 = 150
-        self.ydev = 100
+        self.xdev1 = 80
+        self.xdev2 = 60
+        self.ydev = 60
+        
+        # 689 vertical push
+        # self.ycen = 120
+        # self.xcen = 98
+        # self.xdev = 25
+        # self.ydev = 80
+        # self.xdev1 = 35
+        # self.xdev2 = 35
         
         # interferometry
         self.xint = 150
@@ -126,6 +134,7 @@ class _Camera(EnvExperiment):
         self.acquire()
         x1, x2, y1, y2 = self.cam_range
         self.current_image=np.copy(self.cam.get_all_images()[0])[x1:x2,y1:y2] # acquire and crop image
+
         if save:
             self.set_dataset(f"detection.images.Raw_{name}{self.ind}", self.current_image, broadcast=False)
         
@@ -144,8 +153,10 @@ class _Camera(EnvExperiment):
         
        
         # Ranges for 689 spectrsoscopy push
-        self.set_dataset(f"detection.images.ratio", int(10**6*((np.sum(self.current_image[self.xcen-self.xdev1:self.xcen,self.ycen-self.ydev:self.ycen+self.ydev]))/(np.sum(self.current_image[self.xcen-self.xdev1:self.xcen+self.xdev2, self.ycen-self.ydev:self.ycen+self.ydev])))), broadcast=True)
-        self.set_dataset(f"detection.images.counts",int((np.sum(self.current_image[self.x1:self.x2,self.y1:self.y2]))/87), broadcast=True)
+        self.set_dataset(f"detection.images.ratio", int(10**6*((np.sum(self.current_image[self.xcen:self.xcen+self.xdev2,self.ycen-self.ydev:self.ycen+self.ydev]))/(np.sum(self.current_image[self.xcen-self.xdev1:self.xcen+self.xdev2, self.ycen-self.ydev:self.ycen+self.ydev])))), broadcast=True)
+        #self.set_dataset(f"detection.images.ratio", int(10**6*((np.sum(self.current_image[self.xcen-self.xdev:self.xcen+self.xdev,self.ycen-self.ydev:self.ycen]))/(np.sum(self.current_image[self.xcen-self.xdev:self.xcen+self.xdev,self.ycen-self.ydev:self.ycen+self.ydev])))), broadcast=True)
+        #self.set_dataset(f"detection.images.counts",int(((np.sum(self.current_image[self.xcen-self.xdev:self.xcen+self.xdev,self.ycen:self.ycen+self.ydev])))), broadcast=True)
+        self.set_dataset("detection.images.total_counts_port2",int(np.sum(self.current_image[self.xcen:self.xcen+self.xdev2, self.ycen-self.ydev:self.ycen])), broadcast=True)
         self.set_dataset("detection.images.total_counts",int(np.sum(self.current_image)), broadcast=True)
         self.ind += 1
         
@@ -176,6 +187,15 @@ class _Camera(EnvExperiment):
         display_image[self.xcen,   self.ycen-self.ydev:self.ycen+1] = 200
         display_image[self.xcen+self.xdev2,   self.ycen-self.ydev:self.ycen+1] = 200
         
+        #Display for vertical push
+        # display_image[self.xcen-self.xdev:self.xcen+self.xdev+1, self.ycen-self.ydev] = 200
+        # display_image[self.xcen-self.xdev:self.xcen+self.xdev+1, self.ycen] = 200
+        # display_image[self.xcen-self.xdev:self.xcen+self.xdev+1, self.ycen+self.ydev] = 200
+        
+        # display_image[self.xcen-self.xdev, self.ycen-self.ydev:self.ycen+self.ydev] = 200
+        # display_image[self.xcen+self.xdev, self.ycen-self.ydev:self.ycen+self.ydev] = 200
+
+        
         #Display for Bragg
         #+1 order
         # display_image[self.xint:self.xint+self.xydev+1, self.y0hk+self.intdev] = 200
@@ -205,7 +225,9 @@ class _Camera(EnvExperiment):
         # processes the image from the background imaging
         self.acquire()
         x1, x3, y1, y2 = self.cam_range
+        
         self.background_image = np.copy(self.cam.get_all_images()[0])[x1:x3,y1:y2]
+        
         self.set_dataset("detection.images.background_image", self.background_image, broadcast=False)
         self.set_dataset("detection.images.current_image", self.background_image, broadcast=True)
         self.disarm()
@@ -219,27 +241,39 @@ class _Camera(EnvExperiment):
         self.process_background()
 
     @kernel
-    def take_picture(self, save=True, name='', bg_sub=False):
+    def take_picture(self, save=True, name='', bg_sub=True):
         # triggers the camera and hands off to image processing
         self.trigger_camera()
         self.camera_delay(self.Exposure_Time)  
         self.process_image(save, name, bg_sub)
-     
+    
+    
+    def prep_temp_datasets(self, n):
+        self.set_dataset(
+            "gaussianparams",
+            [[0.0]*6]*n,
+            broadcast=True
+        );
+        
+        
+        
     def process_gaussian(self, index) -> TInt32:
         img = np.array(self.get_dataset("detection.images.current_image"))
         center_x, center_y = np.unravel_index(img.argmax(), img.shape)
         val_max = self.current_image[center_x, center_y]
         guess = [val_max, center_x, center_y, 30, 30, 0]
         popt, pcov = curve_fit(_twoDGaussian, self.xdata, img.ravel(), p0=guess, maxfev=15000)
+        
+        self.mutate_dataset("gaussianparams", self.ind-1, popt)
 
               
-                                                    
+
         return int(10**6*popt[index])
     
     def get_push_stats(self) -> TInt32:
         return self.get_dataset('detection.images.ratio')
     def get_push_stats_temp(self) -> TInt32:
-        return int(10**6*self.get_dataset('detection.images.counts'))
+        return int(self.get_dataset('detection.images.counts'))
     
     def get_count_stats(self,i) -> TInt32:
         self.mutate_dataset("detection.counts", i, self.get_dataset('detection.images.counts'))
@@ -247,6 +281,8 @@ class _Camera(EnvExperiment):
     
     def get_totalcount_stats(self) -> TInt32:
         return self.get_dataset('detection.images.total_counts')
+    def get_totalcount_stats_port2(self) -> TInt32:
+        return self.get_dataset('detection.images.total_counts_port2')
     
     def get_peak(self) -> TInt32:
         img = np.array(self.get_dataset("detection.images.current_image"))

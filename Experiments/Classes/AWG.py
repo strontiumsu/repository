@@ -31,6 +31,18 @@ class WaveformGenerator:
         t_centered = t - (start_time + duration / 2)
         pulse = amplitude * np.exp(-t_centered**2 / (2 * std_dev**2))
         self._append_pulse(t, pulse)
+        
+    def add_sigmoid_pulse(self, start_time, duration, amplitude, sigma, sign):
+        t = np.arange(start_time, start_time + duration, 1/self.sample_rate)
+        t_offset = start_time+duration/2  
+        pulse = amplitude/(1 + np.exp(-sign*(t-t_offset)/sigma))
+        pulse[0] = 0
+        self._append_pulse(t, pulse)
+        
+    def add_point(self, t, V):
+        self._append_pulse(np.array([t]), np.array([V]))
+        
+        
 
     def _append_pulse(self, t, pulse):
         if len(self.time_array) == 0:           

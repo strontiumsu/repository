@@ -14,6 +14,8 @@ from CoolingClass import _Cooling
 from CameraClass import _Camera
 from BraggClass import _Bragg
 from repository.models.scan_models import DipoleTemperatureModel
+from scipy.optimize import curve_fit
+from scipy import constants
 
 class DipoleTrapTemperature_exp(Scan1D, TimeScan, EnvExperiment):
 
@@ -48,7 +50,7 @@ class DipoleTrapTemperature_exp(Scan1D, TimeScan, EnvExperiment):
 
         self.setattr_argument("load_time", NumberValue(15*1e-3,min=1.0*1e-3,max=5000.00*1e-3,scale=1e-3,
                      unit="ms"),"parameters")
-
+        self.setattr_argument("plot_direction", EnumerationValue(['X','Y']),"parameters")
 
     def prepare(self):
         #prepare/initialize mot hardware and camera
@@ -59,9 +61,9 @@ class DipoleTrapTemperature_exp(Scan1D, TimeScan, EnvExperiment):
         # register model with scan framework
         self.enable_histograms = True
         self.model = DipoleTemperatureModel(self)
-        self.register_model(self.model, measurement=False, fit=False)
+        self.register_model(self.model, measurement=True, fit=True)
 
-
+        self.Camera.prep_temp_datasets(len(list(self.get_scan_points())))
 
 
 
@@ -101,21 +103,20 @@ class DipoleTrapTemperature_exp(Scan1D, TimeScan, EnvExperiment):
         delay(10*ms)
 
         self.MOTs.rMOT_pulse()
-
-
-
         delay(self.load_time)
 
 
 
         self.Bragg.set_AOM_attens([("Dipole",30.0 )])
-        self.Bragg.AOMs_off(["Homodyne"])
+        self.Bragg.AOMs_off(["Lattice"])
 
 
         delay(t_delay)  # drop time
         self.MOTs.take_MOT_image(self.Camera) # image after variable drop time
+        
         self.Bragg.set_AOM_attens([("Dipole",self.Bragg.atten_Dipole)])
-        self.Bragg.AOMs_on(["Homodyne"])
+        self.Bragg.AOMs_on(["Lattice"])
+        
 
         delay(10*ms)
         self.MOTs.AOMs_on(self.MOTs.AOMs)
@@ -123,4 +124,41 @@ class DipoleTrapTemperature_exp(Scan1D, TimeScan, EnvExperiment):
         delay(50*ms)
         self.Camera.process_image(bg_sub=True)
         delay(400*ms)
-        return 0
+        if self.plot_direction == 'X':
+            return self.Camera.process_gaussian(3)
+        else:
+            return self.Camera.process_gaussian(4)
+            
+    def after_scan(self):
+        
+        
+        data = np.array(self.Camera.get_dataset('gaussianparams'))
+        A, center_y, center_x, sigma_y_2, sigma_x_2, offset = data[:,0], data[:,1], data[:,2], data[:,3],data[:,4], data[:,5]
+        t=self.get_scan_points()
+        
+        popt, _ = curve_fit(self.quadratic,list(t),center_y,maxfev=20000);
+
+        ###g/2 = a pixels/ms^2 = 9.8m/s^2 =
+        pix2um = 9.81e6/(popt[0]*2)
+        
+        sigma_y_2*=pix2um**2
+        sigma_x_2*=pix2um**2
+        
+        
+     
+        popt_temp_x, _ = curve_fit(self.quadratic,list(t),sigma_x_2,maxfev=20000);     
+        popt_temp_y, _ = curve_fit(self.quadratic,list(t),sigma_y_2,maxfev=20000);
+
+
+        M  = constants.value('atomic mass constant')*87.9
+        Kb = constants.value('Boltzmann constant')
+        tempX = popt_temp_x[0]*1e-12*M/Kb * 1e6
+        tempY = popt_temp_y[0]*1e-12*M/Kb * 1e6
+        
+        self.set_dataset("TOF.TempX", tempX, broadcast=True)
+        self.set_dataset("TOF.TempY", tempY, broadcast=True)
+        self.set_dataset("TOF.pix2um", pix2um, broadcast=True)
+
+        
+    def quadratic(self, x,a,b,c):
+        return a*x**2+b*x+c

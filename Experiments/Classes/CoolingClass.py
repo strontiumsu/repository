@@ -9,7 +9,7 @@ Desc: This file contains the class that controls all blue MOT  and red MOT metho
 
 from artiq.experiment import ms, us, MHz
 from artiq.experiment import NumberValue, TInt32
-from artiq.experiment import parallel, sequential, delay
+from artiq.experiment import parallel, sequential, delay, at_mu
 from artiq.experiment import kernel, EnvExperiment
 
 import numpy as np
@@ -21,11 +21,10 @@ class _Cooling(EnvExperiment):
         self.setattr_device("core")
 
         ## TTLs
-        self.setattr_device("ttl0") # shutter TTLs (2D and zeeman)
-        self.setattr_device("ttl3") # MOT coil direction
-
+        #self.setattr_device("ttl0") # shutter TTLs (2D and zeeman)
+        self.setattr_device("ttl7") # MOT coil direction
         self.setattr_device("ttl6") # for switching to single freq channel
-
+        self.setattr_device("ttl1")
 
         ## AOMS
 
@@ -33,12 +32,12 @@ class _Cooling(EnvExperiment):
         self.setattr_device('urukul1_cpld')
 
         # names for all our AOMs
-        self.AOMs = ["3D", "3P0_repump", "3P2_repump", 'Probe']
+        self.AOMs = ["3D", "3P0_repump", "3P2_repump", '3D_red']
 
         # default values for all params for all AOMs
         self.scales = [0.8, 0.8, 0.8, 0.8]
-        self.attens = [6.0, 6.0, 14.0, 16.0] # last two are for nova tech and are scaled between 0 and 1024
-        self.freqs = [180.0, 100.0, 80.0, 180.0]
+        self.attens = [6.0, 2.0, 6.0, 16.0] 
+        self.freqs = [180.0, 210.0, 80.0, 180]
 
         self.urukul_channels = [self.get_device("urukul1_ch0"),
                                 self.get_device("urukul1_ch1"),
@@ -52,7 +51,7 @@ class _Cooling(EnvExperiment):
             AOM = self.AOMs[i]
             self.setattr_argument(f"scale_{AOM}", NumberValue(self.scales[i], min=0.0, max=0.9), f"{AOM}_AOMs")
             self.setattr_argument(f"atten_{AOM}", NumberValue(self.attens[i], min=1.0, max=30), f"{AOM}_AOMs")
-            self.setattr_argument(f"freq_{AOM}", NumberValue(self.freqs[i]*1e6, min=50*1e6, max=350*1e6, scale=1e6, unit='MHz'),  f"{AOM}_AOMs")
+            self.setattr_argument(f"freq_{AOM}", NumberValue(self.freqs[i]*1e6, min=0.5*1e6, max=250*1e6, scale=1e6, unit='MHz'),  f"{AOM}_AOMs")
 
 
         ## MOT Coils
@@ -102,9 +101,9 @@ class _Cooling(EnvExperiment):
 
 
         ## Misc params
-        self.setattr_argument("Push_pulse_time",NumberValue(2.5*1e-6,min=0.0*1e6,max=50000.00*1e-3,scale = 1e-6,
+        self.setattr_argument("Push_pulse_time",NumberValue(0.7*1e-6,min=0.0*1e6,max=50000.00*1e-3,scale = 1e-6,
                       unit="us"),"Detection")
-        self.setattr_argument("Detection_pulse_time",NumberValue(0.15*1e-3,min=0.0,max=100.00*1e-3,scale = 1e-3,
+        self.setattr_argument("Detection_pulse_time",NumberValue(0.1*1e-3,min=0.0,max=100.00*1e-3,scale = 1e-3,
                       unit="ms"),"Detection")
         self.setattr_argument("Delay_duration", NumberValue(1000*1e-6,min=0.0*1e-6,max=15000.00*1e-6,scale = 1e-6,
                       unit="us"),"Detection")
@@ -118,9 +117,9 @@ class _Cooling(EnvExperiment):
     #<><><><><><><>
 
     def prepare_aoms(self):
-        self.scales = [self.scale_3D, self.scale_3P0_repump, self.scale_3P2_repump, self.scale_Probe]
-        self.attens = [self.atten_3D, self.atten_3P0_repump, self.atten_3P2_repump, self.atten_Probe]
-        self.freqs = [self.freq_3D, self.freq_3P0_repump, self.freq_3P2_repump, self.freq_Probe]
+        self.scales = [self.scale_3D, self.scale_3P0_repump, self.scale_3P2_repump, self.scale_3D_red]
+        self.attens = [self.atten_3D, self.atten_3P0_repump, self.atten_3P2_repump, self.atten_3D_red]
+        self.freqs = [self.freq_3D, self.freq_3P0_repump, self.freq_3P2_repump, self.freq_3D_red]
 
 
     @kernel
@@ -130,7 +129,7 @@ class _Cooling(EnvExperiment):
         self.urukul1_cpld.init()
 
         for i in range(len(self.AOMs)):
-            delay(1*ms)
+            delay(2*ms)
 
             ch = self.urukul_channels[i]
             ch.init()
@@ -149,15 +148,23 @@ class _Cooling(EnvExperiment):
     @kernel
     def init_ttls(self):
         delay(100*ms)
-        with parallel:
-            self.ttl0.output()
-            self.ttl3.output()
-            self.ttl6.output()
+        self.ttl6.output()
+        self.ttl1.input()
         delay(10*ms)
-        with parallel:
-            self.ttl3.off()
-            self.ttl0.off()
-            self.ttl6.off()
+        self.ttl6.on()
+        
+    @kernel
+    def line_trigger(self, offset=5*ms):
+        # sets start of exp relative to linetrigger
+        t_end = self.ttl1.gate_rising(1/60) # ensures we only gate for one cycle
+        t_edge = self.ttl1.timestamp_mu(t_end)
+    
+        if t_edge > 0:
+            at_mu(t_edge+self.core.seconds_to_mu(offset))  # Add a tiny buffer to prevent underflow
+        
+        delay(1*ms)
+        self.ttl1.count(t_end) # clears cache
+        delay(50*ms)
 
 
     # turns AOMs on/off via RF switch
@@ -211,10 +218,12 @@ class _Cooling(EnvExperiment):
     # turns the zeeman and 2D off/on via shutter
     @kernel
     def atom_source_on(self):
-        self.ttl0.on()
+        #self.ttl0.on()
+        self.dac_set(1, 4.0)
     @kernel
     def atom_source_off(self):
-        self.ttl0.off()
+        self.dac_set(1, 0.0)
+        #self.ttl0.off()
 
 
 
@@ -232,7 +241,7 @@ class _Cooling(EnvExperiment):
     def init_coils(self):
         self.dac_0.init() # initialize DAC that controls setpoint
         delay(5*ms)
-        self.ttl3.off()  # puts in MOT config
+        self.ttl7.off()  # puts in MOT config
 
     # sets to 0 current
     @kernel
@@ -257,8 +266,8 @@ class _Cooling(EnvExperiment):
         self.coils_off() # turn off current
         delay(20*ms) # wait for current to settle
 
-        if direc == 0: self.ttl3.off() # set appropriate direction
-        else: self.ttl3.on()
+        if direc == 0: self.ttl7.off() # set appropriate direction
+        else: self.ttl7.on()
 
         delay(1*ms)
 
@@ -327,20 +336,25 @@ class _Cooling(EnvExperiment):
 
     @kernel
     def rMOT_pulse(self, sf = True):
-        self.core.break_realtime()
-        delay(1*ms)
+        # self.core.break_realtime()
+        # delay(1*ms)
 
         self.atom_source_on()
         self.AOMs_on(["3D", "3P0_repump", "3P2_repump"])
         self.set_current_dir(0)
-        self.dac_0.write_dac(1, 9.9) #set initial detuning
-        self.dac_0.load()
-        delay(5*ms)
-        self.ttl6.off() #start in broadband mode
+        # self.dac_0.write_dac(1, 9.9) #dont think we need this anymore
+        # self.dac_0.load()
+        # delay(5*ms)
+        # self.ttl6.off() # moved this line to after bmot loading to keep bb red light off
         self.Blackman_ramp_up()
         self.hold(self.bmot_load_duration)
+        
+        # line trigger
+        #self.line_trigger()
+        #delay(25*ms)
 
         ### Ramp transfer sequence
+        self.ttl6.off() #start in broadband mode
         tramp = 100*ms
         dt = tramp/int(self.Npoints)
         for step in range(1, int(self.Npoints)):
@@ -363,7 +377,7 @@ class _Cooling(EnvExperiment):
         delay(self.rmot_bb_duration)
 
         self.AOMs_off(["3P0_repump","3P2_repump"])
-        self.AOMs_on(["Probe"])
+        self.AOMs_on(["3D_red"])
         self.linear_ramp(self.rmot_bb_current, self.rmot_sf_current, self.rmot_ramp_duration, self.Npoints)
 
 
@@ -373,9 +387,9 @@ class _Cooling(EnvExperiment):
         #     tramp = 20*ms
         #     dt = tramp/10
         #     for step in range(1, 11):
-        #         self.set_AOM_freqs([("Probe",self.freq_Probe-(1-step/10)*1*MHz)])
+        #         self.set_AOM_freqs([("3D_red",self.freq_3D_red-(1-step/10)*1*MHz)])
         #         delay(dt/2)
-        #         self.set_AOM_attens([("Probe",4+10*step/10)])
+        #         self.set_AOM_attens([("3D_red",4+10*step/10)])
         #         delay(dt/2)
         #     delay(self.rmot_sf_duration)
 
@@ -383,45 +397,42 @@ class _Cooling(EnvExperiment):
         if sf:
             delay(self.rmot_sf_duration)
 
-        self.AOMs_off(["Probe"])
+        self.AOMs_off(["3D_red"])
 
         self.set_current(0.0)
 
     @kernel
     def take_background_image_exp(self, cam):
-        #changed slack here
         cam.arm()
         delay(150*ms)
         self.take_MOT_image(cam)
         delay(150*ms)
         cam.process_background()
 
+    @kernel
+    def take_image_exp(self, cam):
+        cam.trigger_camera()
+        delay(cam.Exposure_Time)
 
     @kernel
     def take_MOT_image(self, cam):
         self.atom_source_off()
-        self.AOMs_off(['3P0_repump', '3P2_repump', '3D'])
+        self.AOMs_off(['3P0_repump', '3P2_repump', '3D','3D_red'])
         self.set_AOM_freqs([('3D', self.f_MOT3D_detect)])
         self.set_AOM_attens([('3D', 6.0)])
+        delay(1*ms)
         with parallel:
             cam.trigger_camera()
             with sequential:
-                self.AOMs_on(['3P0_repump', '3P2_repump', '3D'])
+                #self.AOMs_on(['3P0_repump', '3P2_repump', '3D'])
+                self.AOMs_on(['3D'])
                 delay(self.Detection_pulse_time)
                 self.AOMs_off(['3D'])
             delay(cam.Exposure_Time)
         self.set_AOM_freqs([('3D', self.freq_3D)])
         self.set_AOM_attens([('3D', self.atten_3D)])
+        self.AOMs_off(['3P0_repump', '3P2_repump'])
 
-
-
-
-    @kernel
-    def push(self):
-        self.AOMs_on(['Probe'])
-        delay(self.Push_pulse_time)
-        self.AOMs_off(['Probe'])
-        delay(self.Delay_duration)
 
 
     def index_artiq(self, aom) -> TInt32:

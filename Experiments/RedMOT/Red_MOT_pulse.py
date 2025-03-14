@@ -52,26 +52,29 @@ class Red_MOT_pulse_exp(EnvExperiment):
         # Initialize camera
         self.Camera.camera_init()
 
-        self.Camera.prep_datasets(np.full(int(self.pulses), np.nan))
 
     @kernel
     def run(self):
         # initial devices
         self.core.reset()
         self.MOTs.init_coils()
+        self.MOTs.init_ttls()
         self.MOTs.init_aoms(on=False)
-
-        delay(50*ms)
+        delay(100*ms)
+        
+        # take image for bg sub
         self.MOTs.take_background_image_exp(self.Camera)
         delay(500*ms)
+        
         for m in range(int(self.pulses)):
             self.Camera.arm()
             delay(200*ms)
             if self.broadband:
                 #self.MOTs.rMOT_broadband_pulse(50*ms)
                 self.MOTs.rMOT_pulse(sf=False)
+                delay(self.wait_time)
             else:
-                self.MOTs.rMOT_pulse()
+                self.MOTs.rMOT_pulse(sf=True)
                 delay(self.wait_time)
 
 
@@ -86,7 +89,5 @@ class Red_MOT_pulse_exp(EnvExperiment):
             #self.Camera.get_count_stats(m)
             delay(self.wait_time)
 
-        self.MOTs.set_AOM_attens([("Probe",23.5)])
-
-        self.MOTs.AOMs_on(['3P0_repump', '3P2_repump', '3D',"Probe"])
+        self.MOTs.AOMs_on(['3P0_repump', '3P2_repump', '3D',"3D_red"])
         self.MOTs.atom_source_on()

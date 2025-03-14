@@ -18,21 +18,21 @@ class _Bragg(EnvExperiment):
     def build(self):
         self.setattr_device("core")
         self.setattr_device("urukul2_cpld")
-        self.setattr_device("urukul0_cpld")
+
 
 
         # names for all our AOMs
-        self.AOMs = ["Dipole", 'Bragg1', 'Bragg2', "Homodyne"]
+        self.AOMs = ["Dipole", 'Bragg1', 'Bragg2', "Lattice"]
 
 
 
         # default values for all params for all AOMs
-        self.scales = [0.8, 0.8, 0.8, 0.4]
+        self.scales = [0.8, 0.8, 0.8, 0.8]
 
-        self.attens = [12.0, 10.0, 10.0, 30.0]
+        self.attens = [12.0, 6.0, 6.0, 3.0]
         # self.attens = [18.0, 5.0, 20.0, 20.0]
 
-        self.freqs = [80.0, 110.0, 110.0, 80.0]
+        self.freqs = [80.0, 80.0, 80.0, 80.0]
         # self.freqs = [110.0, 110.0, 80.00000, 200.0]
 
 
@@ -50,16 +50,16 @@ class _Bragg(EnvExperiment):
 
 
     def prepare_aoms(self):
-        self.scales = [self.scale_Dipole, self.scale_Bragg1, self.scale_Bragg2, self.scale_Homodyne]
-        self.attens = [self.atten_Dipole, self.atten_Bragg1, self.atten_Bragg2, self.atten_Homodyne]
-        self.freqs = [self.freq_Dipole, self.freq_Bragg1, self.freq_Bragg2, self.freq_Homodyne]
+        self.scales = [self.scale_Dipole, self.scale_Bragg1, self.scale_Bragg2, self.scale_Lattice]
+        self.attens = [self.atten_Dipole, self.atten_Bragg1, self.atten_Bragg2, self.atten_Lattice]
+        self.freqs = [self.freq_Dipole, self.freq_Bragg1, self.freq_Bragg2, self.freq_Lattice]
 
     @kernel
     def init_aoms(self, on=False):
         delay(50*ms)
         self.urukul2_cpld.init()
         for i in range(len(self.AOMs)):
-            delay(1*ms)
+            delay(2*ms)
 
             ch = self.urukul_channels[i]
             ch.init()
@@ -151,10 +151,10 @@ class _Bragg(EnvExperiment):
 
     @kernel
     def lattice_rampdown(self, end, time):
-        ind = self.index_artiq("Homodyne")
+        ind = self.index_artiq("Lattice")
         dt = time/31
         for step in range(int(31)):
-            atten = self.atten_Homodyne + ((end-self.atten_Homodyne)/time)*step*dt
+            atten = self.atten_Lattice + ((end-self.atten_Lattice)/time)*step*dt
             self.attens[ind] = atten
             self.urukul_channels[ind].set_att(atten)
             delay(dt)

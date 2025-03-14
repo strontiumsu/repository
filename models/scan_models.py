@@ -13,6 +13,9 @@ from scan_framework.models import (
     Gauss,
     Lor,
     MHz,
+    AtomLine,
+    kHz,
+    Hz,
     Model,
     Poly,
     Power,
@@ -21,6 +24,79 @@ from scan_framework.models import (
     TimeModel,
 )
 from scipy import constants
+
+class AI_Rabi_Model(TimeFreqModel):
+     # global parameters
+    namespace='AI_calib.%arm'
+    y_label='Transition Probability'
+    y_scale = 1e6
+    x_scale = 1e-6
+    enable_histograms = False
+
+    @property
+    def plot_title(self):
+        if self.type == 'time':
+            return 'Rabi Flop'
+        else:
+            return 'Frequency Scan'
+
+    @property
+    def fit_function(self):
+        if self.type == 'frequency':
+            return AtomLine
+        elif self.type == 'time':
+            return ExpSine
+        else:
+            raise ValueError("Not Valid Scan Type")
+
+    @property
+    def main_fit(self):
+        if self.type == 'frequency':
+            return ['f0', 'center freq']
+        elif self.type == 'time':
+            return "f"
+        else:
+            raise ValueError("Not Valid Scan Type")
+    @property
+    def fits_to_save(self):
+        if self.type == 'frequency':        
+            return {"f0":"center_freq"}
+        elif self.type == 'time':
+            return {"f":"Rabi Frequency", "tau": "decay time"}
+        else:
+            raise ValueError("Not Valid Scan Type")
+    # @property
+    # def x_units(self):
+    #     if self.type == 'frequency':
+    #         return "MHz"
+    #     elif self.type == 'time':
+    #         return "ns"
+    #     else:
+    #         raise ValueError("Not Valid Scan Type")
+
+    @property
+    def x_label(self):
+        if self.type == 'frequency': unit = 'MHz'
+        else: unit = 'ns'
+        return f"{self.type} ({unit})"
+            
+
+
+    def before_validate(self, fit):
+        if self.type == 'time':
+            fit.fitresults['f'] = np.round(fit.fitresults['f']*1e-6, 3)
+            fit.fitresults['tau'] = np.round(fit.fitresults['tau']*1e6, 2)
+            # fit.fitresults['pi time'] = 1
+        if self.type == 'frequency':
+            fit.fitresults['f0'] = np.round(fit.fitresults['f0']*1e-6, 3)
+
+        
+
+    
+
+
+
+    
 
 
 class MyModel(TimeFreqModel):
@@ -164,12 +240,15 @@ class LoadingModel(TimeModel):
     plot_title = 'Loading Scan'
     enable_histograms = False
     fit_function = Exp
-    man_bounds = {'A': [-1000000, 0],
-                    'b': [-5, 0],
-                    'y0':[0, 1000000]
-                    }
+    #man_bounds = {'A': [-100_000_000, 0],
+        #            'b': [-5, 0],
+         #           'y0':[0, 1000000]
+         #           }
     guess = {'b': -1}
     
+    main_fit = "tau"
+    def before_validate(self, fit):
+        fit.fitresults["tau"] = -1/fit.fitresults['b']
     
 class TemperatureModel(TimeModel):
     
@@ -186,15 +265,16 @@ class TemperatureModel(TimeModel):
     enable_histograms = False
     fit_function = Power
     hold = {'alpha':2}
+    pix2um = 10
     
     @property
     def main_fit(self):
-        return 'tempX'
+        return 'temp_X'
     
     def before_validate(self, fit):
-        M  = constants.value('atomic mass constant')*87.9
-        Kb = constants.value('Boltzmann constant')
-        fit.fitresults['tempX'] = self.pix2um**2*fit.fitresults['A']*1e-12*M/Kb
+            M  = constants.value('atomic mass constant')*87.9
+            Kb = constants.value('Boltzmann constant')
+            fit.fitresults['temp_X'] = 10**2*fit.fitresults['A']*1e-12*M/Kb
 
             
 class DipoleTemperatureModel(TimeModel):
@@ -230,6 +310,19 @@ class RabiFlopModel(TimeModel):
     y_scale = 1e6
     
     
+class DipoleFreqModel(TimeModel):
+    
+    # global parameters
+    enable_histograms=False
+    namespace="DipoleOscExp"
+    y_label='Cloud size'
+    y_scale = 1e6
+    x_label = "Time"
+    x_units = 'ms'
+    plot_title = "Dipole Oscillation"
+    fit_function = Sine
+    main_fit = 'f'
+
     
 class RabiModel(TimeModel):
 

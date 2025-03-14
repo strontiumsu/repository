@@ -1,0 +1,70 @@
+{
+ "scale_3D" : 0.8,
+ "atten_3D" : 6,
+ "freq_3D" : 180*1e6,
+ 
+ "scale_3P0_repump" : 0.8,
+ "atten_3P0_repump" : 6,
+ "freq_3P0_repump" : 100*1e6,
+ 
+ "scale_3P2_repump" : 0.8,
+ "atten_3P2_repump" : 14,
+ "freq_3P2_repump" : 80*1e6,
+ 
+ "scale_Probe" : 0.8,
+ "atten_Probe" : 14,
+ "freq_Probe" : 179.85*1e6, # red mot single frequency
+ 
+ "scale_CavSideband" : 0.8,
+ "atten_CavSideband" : 12,
+ "freq_CavSideband" : 3*1e6,
+ 
+ "scale_Push" : 0.8,
+ "atten_Push" : 8,
+ "freq_Push" : 205*1e6,
+ 
+ "scale_AI1" : 0.8,
+ "atten_AI1" : 12,
+ "freq_AI1" : 80*1e6,
+ 
+ "scale_AI2" : 0.8,
+ "atten_AI2" : 12,
+ "freq_AI2" : 80*1e6,
+ 
+ "scale_Dipole" : 0.8,
+ "atten_Dipole" : 12,
+ "freq_Dipole" : 80*1e6,
+ 
+ "scale_Lattice" : 0.8,
+ "atten_Lattice" : 3,
+ "freq_Lattice" : 80*1e6,
+ 
+ "scale_Bragg1" : 0.8,
+ "atten_Bragg1" : 10,
+ "freq_Bragg1" : 110*1e6,
+ 
+ "scale_Bragg2" : 0.8,
+ "atten_Bragg2" : 10,
+ "freq_Bragg2" : 110*1e6,
+ 
+ "bmot_ramp_duration" : 50*1e-3,
+ "bmot_current" : 5,
+ "bmot_load_duration" : 1,
+ "rmot_bb_current" : 0.5,
+ "rmot_bb_duration" : 0.1,
+ "rmot_ramp_duration" : 0.1,
+ "rmot_sf_current" : 2,
+ "rmot_sf_duration" : 25*1e-3,
+ "Npoints" : 60,
+ 
+ "Push_pulse_time" : 1.2*1e-6,
+ "Detection_pulse_time" : 0.1*1e-3,
+ "Delay_duration" : 1000*1e-6,
+ "Exposure_Time" : 1.5*1e-3,
+ "Hardware_Gain" : 150,
+ "Median_Filter" : False,
+ "Gaussian_Filter" : False,
+ 
+ "Dipole_load_time" : 20*1e-3,
+
+}

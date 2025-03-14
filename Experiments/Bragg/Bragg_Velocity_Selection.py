@@ -166,9 +166,9 @@ class Bragg_Velocity_Selection_exp(Scan1D, TimeFreqScan, EnvExperiment):
         self.MOTs.rMOT_pulse()
         delay(self.dipole_load_time)
 
-        self.Bragg.set_AOM_attens([("Dipole",30.0), ("Homodyne",30.0)])
-        self.Bragg.set_AOM_scales([("Dipole",0.6), ("Homodyne",0.1)])
-        self.Bragg.AOMs_off(['Homodyne'])
+        self.Bragg.set_AOM_attens([("Dipole",30.0), ("Lattice",30.0)])
+        self.Bragg.set_AOM_scales([("Dipole",0.6), ("Lattice",0.1)])
+        self.Bragg.AOMs_off(['Lattice'])
 
 
         #exp start
@@ -191,21 +191,21 @@ class Bragg_Velocity_Selection_exp(Scan1D, TimeFreqScan, EnvExperiment):
         self.ttl1.off()
 
 
-        self.Bragg.set_AOM_attens([("Dipole",self.Bragg.atten_Dipole), ("Homodyne",30.0)])  # keeping on dipole guide
+        self.Bragg.set_AOM_attens([("Dipole",self.Bragg.atten_Dipole), ("Lattice",30.0)])  # keeping on dipole guide
         self.Bragg.set_AOM_scales([("Dipole",self.Bragg.scale_Dipole)])
 
         delay(self.drift_time)
 
         self.MOTs.take_MOT_image(self.Camera)
-        self.Bragg.set_AOM_attens([("Dipole",self.Bragg.atten_Dipole ), ("Homodyne",self.Bragg.atten_Homodyne)])
-        self.Bragg.set_AOM_scales([("Dipole",self.Bragg.scale_Dipole ), ("Homodyne",self.Bragg.scale_Homodyne)])
-        self.Bragg.AOMs_on(['Homodyne'])
+        self.Bragg.set_AOM_attens([("Dipole",self.Bragg.atten_Dipole ), ("Lattice",self.Bragg.atten_Lattice)])
+        self.Bragg.set_AOM_scales([("Dipole",self.Bragg.scale_Dipole ), ("Lattice",self.Bragg.scale_Lattice)])
+        self.Bragg.AOMs_on(['Lattice'])
 
 
         delay(50*ms)
         self.Camera.process_image(bg_sub=True)
         delay(400*ms)
-        self.MOTs.AOMs_off(['3P0_repump', '3P2_repump', '3D', "Probe"])
+        self.MOTs.AOMs_off(['3P0_repump', '3P2_repump', '3D', "3D_red"])
         delay(200*ms)
         self.chirp_dds.set_cfr1(ram_enable=0)
         self.chirp_dds.cpld.io_update.pulse_mu(8)
