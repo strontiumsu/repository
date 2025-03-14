@@ -48,9 +48,9 @@ class DipoleTrapFrequency_exp(Scan1D, TimeScan, EnvExperiment):
             )
 
 
-        self.setattr_argument("load_time", NumberValue(15*1e-3,min=1.0*1e-3,max=5000.00*1e-3,scale=1e-3,
+        self.setattr_argument("load_time", NumberValue(15*1e-3,min=0.0*1e-3,max=5000.00*1e-3,scale=1e-3,
                      unit="ms"),"parameters")
-        self.setattr_argument("wait_time", NumberValue(15*1e-3,min=1.0*1e-3,max=5000.00*1e-3,scale=1e-3,
+        self.setattr_argument("wait_time", NumberValue(15*1e-3,min=0.0*1e-3,max=5000.00*1e-3,scale=1e-3,
                      unit="ms"),"parameters")
 
     def prepare(self):
@@ -114,16 +114,21 @@ class DipoleTrapFrequency_exp(Scan1D, TimeScan, EnvExperiment):
         delay(self.wait_time)  # drop time
         
         self.Bragg.set_AOM_attens([("Dipole",self.Bragg.atten_Dipole)])
+        #self.Bragg.AOMs_on(["Lattice"])
         
         
         delay(t_delay)
         
         self.Bragg.set_AOM_attens([("Dipole",30.0 )])
+        #self.Bragg.AOMs_off(["Lattice"])
 
 
         delay(self.wait_time)  # drop time
         
         self.Bragg.set_AOM_attens([("Dipole",self.Bragg.atten_Dipole)])
+        #self.Bragg.AOMs_on(["Lattice"])
+        
+        delay(1*ms)
         
         
         self.MOTs.take_MOT_image(self.Camera) # image after variable drop time
@@ -139,7 +144,7 @@ class DipoleTrapFrequency_exp(Scan1D, TimeScan, EnvExperiment):
         delay(50*ms)
         self.Camera.process_image(bg_sub=True)
         delay(400*ms)
-        return self.Camera.process_gaussian(4)
+        return self.Camera.get_totalcount_stats_port2()
     
     def after_fit(self, fit_name, valid, saved, model):
         self.set_dataset('current_scan.plots.error', model.errors, broadcast=True, persist=True)

@@ -107,11 +107,11 @@ class DipoleTrapTemperature_exp(Scan1D, TimeScan, EnvExperiment):
 
 
 
-        self.Bragg.set_AOM_attens([("Dipole",30.0 )])
-        self.Bragg.AOMs_off(["Lattice"])
+        #self.Bragg.set_AOM_attens([("Dipole",30.0 )])
+        #self.Bragg.AOMs_off(["Lattice"])
 
 
-        delay(t_delay)  # drop time
+        # delay(t_delay)  # drop time
         self.MOTs.take_MOT_image(self.Camera) # image after variable drop time
         
         self.Bragg.set_AOM_attens([("Dipole",self.Bragg.atten_Dipole)])
@@ -124,10 +124,11 @@ class DipoleTrapTemperature_exp(Scan1D, TimeScan, EnvExperiment):
         delay(50*ms)
         self.Camera.process_image(bg_sub=True)
         delay(400*ms)
-        if self.plot_direction == 'X':
-            return self.Camera.process_gaussian(3)
-        else:
-            return self.Camera.process_gaussian(4)
+        return self.Camera.get_totalcount_stats_port2()
+        # if self.plot_direction == 'X':
+        #     return self.Camera.process_gaussian(3)
+        # else:
+        #     return self.Camera.process_gaussian(4)
             
     def after_scan(self):
         

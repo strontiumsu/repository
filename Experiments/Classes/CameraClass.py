@@ -156,7 +156,7 @@ class _Camera(EnvExperiment):
         self.set_dataset(f"detection.images.ratio", int(10**6*((np.sum(self.current_image[self.xcen:self.xcen+self.xdev2,self.ycen-self.ydev:self.ycen+self.ydev]))/(np.sum(self.current_image[self.xcen-self.xdev1:self.xcen+self.xdev2, self.ycen-self.ydev:self.ycen+self.ydev])))), broadcast=True)
         #self.set_dataset(f"detection.images.ratio", int(10**6*((np.sum(self.current_image[self.xcen-self.xdev:self.xcen+self.xdev,self.ycen-self.ydev:self.ycen]))/(np.sum(self.current_image[self.xcen-self.xdev:self.xcen+self.xdev,self.ycen-self.ydev:self.ycen+self.ydev])))), broadcast=True)
         #self.set_dataset(f"detection.images.counts",int(((np.sum(self.current_image[self.xcen-self.xdev:self.xcen+self.xdev,self.ycen:self.ycen+self.ydev])))), broadcast=True)
-        self.set_dataset("detection.images.total_counts_port2",int(np.sum(self.current_image[self.xcen:self.xcen+self.xdev2, self.ycen-self.ydev:self.ycen])), broadcast=True)
+        self.set_dataset("detection.images.total_counts_port2",int(np.sum(self.current_image[self.xcen:self.xcen+self.xdev2, self.ycen-self.ydev:self.ycen+self.ydev])), broadcast=True)
         self.set_dataset("detection.images.total_counts",int(np.sum(self.current_image)), broadcast=True)
         self.ind += 1
         

@@ -316,7 +316,6 @@ class DipoleFreqModel(TimeModel):
     enable_histograms=False
     namespace="DipoleOscExp"
     y_label='Cloud size'
-    y_scale = 1e6
     x_label = "Time"
     x_units = 'ms'
     plot_title = "Dipole Oscillation"
