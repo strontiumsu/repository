@@ -75,6 +75,8 @@ class cavity_calib_exp(Scan1D, EnvExperiment):
         self.freq_list_ram = np.full(1024, 1)
         self.step_size=0
 
+        self.scan_dds = self.Bragg.urukul_channels[1]
+
 
     def get_scan_points(self):
         # return the set of scan points to the framework
@@ -89,13 +91,14 @@ class cavity_calib_exp(Scan1D, EnvExperiment):
         self.register_model(self.model, measurement=False, fit=True)
 
     @kernel
-    def load_scan(self, freqs, dds):
+    def load_scan(self, dds):
         self.step_size = int(self.scan_time/(1024*4*ns))
         f0 = self.freq_center + self.freq_width/2
         if self.freq_width/2 > self.freq_center: raise Exception("Bad Range")
-        
-
-        self.freq_list = freqs[::-1]
+    
+        f_step = self.freq_width / 1023        
+        for i in range(1024):
+            self.freq_list[i] = f0 - f_step*i
             
         dds.frequency_to_ram(self.freq_list, self.freq_list_ram)
 
@@ -106,8 +109,6 @@ class cavity_calib_exp(Scan1D, EnvExperiment):
 
         delay(1 * ms)
 
-
-
         dds.set_cfr1(ram_enable=0)
         dds.cpld.io_update.pulse_mu(8)
 
@@ -115,7 +116,7 @@ class cavity_calib_exp(Scan1D, EnvExperiment):
                                   profile=0, mode=ad9910.RAM_MODE_RAMPUP)
         dds.cpld.set_profile(0)
 
-        delay(100*us) # needs 2x delays here not to throw RTIOUnderflow Error?????
+        delay(100*us) # need to not to throw RTIOUnderflow Error (not sure why)
         delay(100*us)
 
         dds.cpld.io_update.pulse_mu(8)
@@ -128,14 +129,99 @@ class cavity_calib_exp(Scan1D, EnvExperiment):
 
         self.core.wait_until_mu(now_mu())
 
+    @kernel
+    def before_scan(self):
+        self.core.reset()
 
+        self.ttl5.off()
+        self.MOTs.init_coils()
+        self.MOTs.init_ttls()
+        self.MOTs.init_aoms(on=False)
+        self.Bragg.init_aoms(on=True)
+
+        self.Bragg.AOMs_off(["Bragg1", "Bragg2"])
+        self.MOTs.set_current_dir(0)
+        delay(1*ms)
+
+        self.load_scan(self.scan_dds)
+        delay(1 * ms)
+
+        self.core.wait_until_mu(now_mu())
+
+
+    @kernel
     def measure(self, point):
-        pass
+        self.core.reset() 
+        delay( 1 * ms)
+
+        self.Bragg.set_AOM_attens([("Bragg1", self.Bragg.atten_Bragg1)])
+        delay(10 * ms)
+    
+        self.MOTs.AOMs_off(self.MOTs.AOMs) # ensure AOMs are off
+        delay(10*ms)
+
+        self.run_exp()
+
+        self.MOTs.set_current_dir(0)
+        self.MOTs.AOMs_off(self.MOTs.AOMs)
+        delay(10*ms)
+
+        self.core.wait_until_mu(now_mu())
+        return 0
+
     
 
     @kernel
-    def before_scan(self):
+    def run_exp():
 
+        self.MOTs.rMOT_pulse()
+        
+        
+        with parallel:
+            with sequential:
+                delay(10*ms)
+                self.MOTs.ttl7.on()
+                delay(1*ms)
+                self.MOTs.Blackman_ramp(0.0, 0.3, 20*ms)
+        
+            delay(self.dipole_load_time)
+        
+        self.Bragg.AOMs_on(["Bragg2"]) # turn on probe light
+        with parallel:
+            self.scan_dds.sw.on()
+            self.ttl5.on()
+            self.scan_dds.cpld.io_update.pulse_mu(8)
+        delay(self.scan_time)
+        with parallel:
+            self.scan_dds.sw.off()
+            self.ttl5.off()            
+        self.Bragg.AOMs_off(["Bragg2"])
 
-    @kernel
-    def run_exp()
+        with parallel:
+            delay(200*ms) 
+            with sequential:
+                self.scan_dds.set_cfr1(ram_enable=0)
+                self.scan_dds.cpld.io_update.pulse_mu(8)
+                delay(5*ms)
+
+                self.scan_dds.set(self.freq_center - self.freq_width/2, amplitude=self.Bragg.scale_Bragg1)
+                delay(1 * ms)   
+
+                self.scan_dds.set_cfr1(internal_profile=0, ram_enable=1, ram_destination=ad9910.RAM_DEST_FTW)
+                delay(1 * ms)
+
+        self.Bragg.AOMs_on(["Bragg2"]) # turn on probe light
+        with parallel:
+            self.scan_dds.sw.on()
+            self.ttl5.on()
+            self.scan_dds.cpld.io_update.pulse_mu(8)
+        delay(self.scan_time)
+        with parallel:
+            self.scan_dds.sw.off()
+            self.ttl5.off()            
+        self.Bragg.AOMs_off(["Bragg2"])
+        
+
+        self.scan_dds.set_cfr1(ram_enable=0)
+        self.scan_dds.cpld.io_update.pulse_mu(8)
+        delay(1*ms)
