@@ -36,7 +36,7 @@ class _Cooling(EnvExperiment):
 
         # default values for all params for all AOMs
         self.scales = [0.8, 0.8, 0.8, 0.8]
-        self.attens = [6.0, 2.0, 6.0, 16.0] 
+        self.attens = [6.0, 2.0, 6.0, 26.0] 
         self.freqs = [180.0, 210.0, 80.0, 180]
 
         self.urukul_channels = [self.get_device("urukul1_ch0"),
@@ -105,7 +105,7 @@ class _Cooling(EnvExperiment):
                       unit="us"),"Detection")
         self.setattr_argument("Detection_pulse_time",NumberValue(0.1*1e-3,min=0.0,max=100.00*1e-3,scale = 1e-3,
                       unit="ms"),"Detection")
-        self.setattr_argument("Delay_duration", NumberValue(1000*1e-6,min=0.0*1e-6,max=15000.00*1e-6,scale = 1e-6,
+        self.setattr_argument("Delay_duration", NumberValue(800*1e-6,min=0.0*1e-6,max=15000.00*1e-6,scale = 1e-6,
                       unit="us"),"Detection")
 
         # misc params loaded from dataset
@@ -264,7 +264,7 @@ class _Cooling(EnvExperiment):
         assert direc in [0,+1]
 
         self.coils_off() # turn off current
-        delay(20*ms) # wait for current to settle
+        delay(15*ms) # wait for current to settle
 
         if direc == 0: self.ttl7.off() # set appropriate direction
         else: self.ttl7.on()
@@ -279,12 +279,23 @@ class _Cooling(EnvExperiment):
             delay(self.dt)
 
     @kernel
-    def Blackman_ramp_down(self, cur=-1.0):
+    def Blackman_ramp_down(self, cur=-1.0, time=-1.0):
         if cur == -1.0: cur = self.bmot_current
+        if time==-1.0: 
+            dt = self.dt
+        else: 
+            dt= time/((self.Npoints-1)//2)
+        
         for step in range(int((self.Npoints+1)//2), int(self.Npoints)):
             self.dac_set(0, cur*self.window[step])
-            delay(self.dt)
-
+            delay(dt)
+    
+    @kernel
+    def Blackman_ramp_down_set(self, cur, final, time):
+        dt_ramp = time/((self.Npoints-1)//2)
+        for step in range(int((self.Npoints+1)//2), int(self.Npoints)):            
+            self.dac_set(0, final + (cur-final)*self.window[step])
+            delay(dt_ramp)
 
     @kernel
     def linear_ramp_down_capture(self, time):
@@ -302,7 +313,13 @@ class _Cooling(EnvExperiment):
             delay(dt)
 
 
-
+    @kernel
+    def Blackman_ramp(self, start, end, time):
+        dt_ramp = time/((self.Npoints-1)//2)
+        for step in range(int((self.Npoints+1)//2), int(self.Npoints)):            
+            self.dac_set(0, end + (start-end)*self.window[step])
+            delay(dt_ramp)
+        
     @kernel
     def dac_set(self, ch, val):
         self.dac_0.write_dac(ch, val)
@@ -336,42 +353,49 @@ class _Cooling(EnvExperiment):
 
     @kernel
     def rMOT_pulse(self, sf = True):
-        # self.core.break_realtime()
-        # delay(1*ms)
 
         self.atom_source_on()
         self.AOMs_on(["3D", "3P0_repump", "3P2_repump"])
         self.set_current_dir(0)
-        # self.dac_0.write_dac(1, 9.9) #dont think we need this anymore
-        # self.dac_0.load()
-        # delay(5*ms)
-        # self.ttl6.off() # moved this line to after bmot loading to keep bb red light off
+
         self.Blackman_ramp_up()
         self.hold(self.bmot_load_duration)
         
-        # line trigger
-        #self.line_trigger()
-        #delay(25*ms)
+        #line trigger
+        self.line_trigger()
+        delay(150*ms)
+        
 
         ### Ramp transfer sequence
         self.ttl6.off() #start in broadband mode
-        tramp = 100*ms
+        tramp = 25*ms
+        binc = 1.0
         dt = tramp/int(self.Npoints)
         for step in range(1, int(self.Npoints)):
-            self.dac_0.write_dac(0, self.bmot_current + 1.0/tramp*step*dt)
+            self.dac_0.write_dac(0, self.bmot_current + binc/tramp*step*dt)
             self.dac_0.load()
-            self.set_AOM_attens([("3D",6+10*step/int(self.Npoints))])
+            self.set_AOM_attens([("3D",6+24*step/int(self.Npoints))])
             delay(dt)
-        self.dac_0.write_dac(0, self.bmot_current + 1.0)
+        self.dac_0.write_dac(0, self.bmot_current + binc)
         self.dac_0.load()
         ##########################
 
-        #with parallel:
         self.atom_source_off()
         self.AOMs_off(['3D'])
         delay(0.5*us)
+        
+        # ## Broadband Ramp transfer sequence
+        # self.ttl6.off() #start in broadband mode
+        # tramp = 5*ms
+        # dt = tramp/int(self.Npoints)
+        # for step in range(1, int(self.Npoints)):
+        #     self.dac_0.write_dac(0, self.bmot_current + 1.0 - (self.bmot_current + 1.0-self.rmot_bb_current)/tramp*step*dt)
+        #     self.dac_0.load()
+        #     delay(dt)
+        # #########################
 
-        self.set_current(self.rmot_bb_current)
+        self.Blackman_ramp(self.bmot_current + binc, self.rmot_bb_current, 20*ms)
+        # self.set_current(self.rmot_bb_current)
 
 
         delay(self.rmot_bb_duration)
@@ -381,15 +405,15 @@ class _Cooling(EnvExperiment):
         self.linear_ramp(self.rmot_bb_current, self.rmot_sf_current, self.rmot_ramp_duration, self.Npoints)
 
 
-        ### Signle-frequency transfer sequence
+        ## Signle-frequency transfer sequence
         # self.ttl6.on() #switch to single frequency with RF switch
         # if sf:
         #     tramp = 20*ms
         #     dt = tramp/10
         #     for step in range(1, 11):
-        #         self.set_AOM_freqs([("3D_red",self.freq_3D_red-(1-step/10)*1*MHz)])
+        #         self.set_AOM_freqs([("3D_red",self.freq_3D_red-(1-step/10)*0.5*MHz)])
         #         delay(dt/2)
-        #         self.set_AOM_attens([("3D_red",4+10*step/10)])
+        #         self.set_AOM_attens([("3D_red",12+10*step/10)])
         #         delay(dt/2)
         #     delay(self.rmot_sf_duration)
 
@@ -399,7 +423,11 @@ class _Cooling(EnvExperiment):
 
         self.AOMs_off(["3D_red"])
 
-        self.set_current(0.0)
+        # 
+        if sf:
+            self.Blackman_ramp(self.rmot_sf_current, 0.0, 20*ms)
+        else:
+            self.set_current(0.0)
 
     @kernel
     def take_background_image_exp(self, cam):

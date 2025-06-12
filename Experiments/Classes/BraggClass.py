@@ -44,9 +44,9 @@ class _Bragg(EnvExperiment):
         # setting attributes to controll all AOMs
         for i in range(len(self.AOMs)):
             AOM = self.AOMs[i]
-            self.setattr_argument(f"scale_{AOM}", NumberValue(self.scales[i], min=0.0, max=0.9), f"{AOM}_AOMs")
-            self.setattr_argument(f"atten_{AOM}", NumberValue(self.attens[i], min=1.0, max=30), f"{AOM}_AOMs")
-            self.setattr_argument(f"freq_{AOM}", NumberValue(self.freqs[i]*1e6, min=0.1000*1e6, max=350.0000*1e6, scale=1e6, unit='MHz'),  f"{AOM}_AOMs")
+            self.setattr_argument(f"scale_{AOM}", NumberValue(self.scales[i], min=0.0, max=0.9, ndecimals=3), f"{AOM}_AOMs")
+            self.setattr_argument(f"atten_{AOM}", NumberValue(self.attens[i], min=1.0, max=30, ndecimals=3), f"{AOM}_AOMs")
+            self.setattr_argument(f"freq_{AOM}", NumberValue(self.freqs[i]*1e6, min=0.1000*1e6, max=351.0000*1e6, scale=1e6, unit='MHz', ndecimals=3),  f"{AOM}_AOMs")
 
 
     def prepare_aoms(self):

@@ -11,7 +11,7 @@ from scipy.optimize import curve_fit
 from scipy.signal import medfilt
 from scipy.ndimage import gaussian_filter
 import matplotlib.pyplot as plt
-
+from PIL import Image
    
 
 class _Camera(EnvExperiment):
@@ -74,20 +74,30 @@ class _Camera(EnvExperiment):
         self.x3 = 500
         
         # 689 horisontal push
-        self.ycen = 115
-        self.xcen = 180
+        self.ycen = 110
+        self.xcen = 190
         self.xydev = 35
-        self.xdev1 = 80
-        self.xdev2 = 60
-        self.ydev = 60
+        self.xdev1 = 50
+        self.xdev2 = 30
+        self.ydev = 40
+        
+        # 689 horisontal double push
+        # self.ycen = 110
+        # self.xcen = 135
+        # self.xydev = 35
+        # self.xdev1 = 60
+        # self.xdev2 = 60
+        # self.ydev = 50
         
         # 689 vertical push
-        # self.ycen = 120
-        # self.xcen = 98
+        # self.ycen = 110
+        # self.xcen = 185
         # self.xdev = 25
-        # self.ydev = 80
-        # self.xdev1 = 35
-        # self.xdev2 = 35
+        # self.ydev = 40
+        # self.xdev1 = 20
+        # self.xdev2 = 20
+        # self.ydev1 = 25
+        # self.ydev2 = 80
         
         # interferometry
         self.xint = 150
@@ -140,12 +150,16 @@ class _Camera(EnvExperiment):
         
         if bg_sub: 
             self.current_image = np.subtract(self.current_image,self.background_image,dtype=np.int16)
+            
+        Image.fromarray(self.current_image.T).save("C:/Users/sr/Documents/Artiq/artiq-master/results/current_image.png")    
         if self.Median_Filter:
             self.current_image = medfilt(self.current_image, 3)
         if self.Gaussian_Filter:
             self.current_image = gaussian_filter(self.current_image, 3)
         if save:
             self.set_dataset(f"detection.images.{name}{self.ind}", self.current_image, broadcast=False)
+            
+        
         
         # Ranges for horizontal push
         # self.set_dataset(f"detection.images.ratio", int(10**6*((np.sum(self.current_image[self.x2:self.x3,self.y1:self.y2]))/(np.sum(self.current_image[self.x1:self.x3, self.y1:self.y2])))), broadcast=True)
@@ -154,9 +168,9 @@ class _Camera(EnvExperiment):
        
         # Ranges for 689 spectrsoscopy push
         self.set_dataset(f"detection.images.ratio", int(10**6*((np.sum(self.current_image[self.xcen:self.xcen+self.xdev2,self.ycen-self.ydev:self.ycen+self.ydev]))/(np.sum(self.current_image[self.xcen-self.xdev1:self.xcen+self.xdev2, self.ycen-self.ydev:self.ycen+self.ydev])))), broadcast=True)
-        #self.set_dataset(f"detection.images.ratio", int(10**6*((np.sum(self.current_image[self.xcen-self.xdev:self.xcen+self.xdev,self.ycen-self.ydev:self.ycen]))/(np.sum(self.current_image[self.xcen-self.xdev:self.xcen+self.xdev,self.ycen-self.ydev:self.ycen+self.ydev])))), broadcast=True)
+        #self.set_dataset(f"detection.images.ratio", int(10**6*((np.sum(self.current_image[self.xcen-self.xdev:self.xcen+self.xdev,self.ycen+self.ydev1:self.ycen]))/(np.sum(self.current_image[self.xcen-self.xdev:self.xcen+self.xdev,self.ycen-self.ydev2:self.ycen+self.ydev1])))), broadcast=True)
         #self.set_dataset(f"detection.images.counts",int(((np.sum(self.current_image[self.xcen-self.xdev:self.xcen+self.xdev,self.ycen:self.ycen+self.ydev])))), broadcast=True)
-        self.set_dataset("detection.images.total_counts_port2",int(np.sum(self.current_image[self.xcen:self.xcen+self.xdev2, self.ycen-self.ydev:self.ycen+self.ydev])), broadcast=True)
+        #self.set_dataset("detection.images.total_counts_port2",int(np.sum(self.current_image[self.xcen:self.xcen+self.xdev2, self.ycen-self.ydev:self.ycen+self.ydev])), broadcast=True)
         self.set_dataset("detection.images.total_counts",int(np.sum(self.current_image)), broadcast=True)
         self.ind += 1
         
@@ -177,7 +191,7 @@ class _Camera(EnvExperiment):
         # display_image[self.x2,   self.y1:self.y2+1] = 200
         
         
-        #Display for horizontal push
+        #display for horizontal push
         display_image[self.xcen-self.xdev1:self.xcen+self.xdev2+1, self.ycen] = 200
         display_image[self.xcen-self.xdev1,   self.ycen-self.ydev:self.ycen+1] = 200
         display_image[self.xcen,   self.ycen-self.ydev:self.ycen+1] = 200
@@ -188,12 +202,12 @@ class _Camera(EnvExperiment):
         display_image[self.xcen+self.xdev2,   self.ycen-self.ydev:self.ycen+1] = 200
         
         #Display for vertical push
-        # display_image[self.xcen-self.xdev:self.xcen+self.xdev+1, self.ycen-self.ydev] = 200
+        # display_image[self.xcen-self.xdev:self.xcen+self.xdev+1, self.ycen-self.ydev2] = 200
         # display_image[self.xcen-self.xdev:self.xcen+self.xdev+1, self.ycen] = 200
-        # display_image[self.xcen-self.xdev:self.xcen+self.xdev+1, self.ycen+self.ydev] = 200
+        # display_image[self.xcen-self.xdev:self.xcen+self.xdev+1, self.ycen+self.ydev1] = 200
         
-        # display_image[self.xcen-self.xdev, self.ycen-self.ydev:self.ycen+self.ydev] = 200
-        # display_image[self.xcen+self.xdev, self.ycen-self.ydev:self.ycen+self.ydev] = 200
+        # display_image[self.xcen-self.xdev, self.ycen-self.ydev2:self.ycen+self.ydev1] = 200
+        # display_image[self.xcen+self.xdev, self.ycen-self.ydev2:self.ycen+self.ydev1] = 200
 
         
         #Display for Bragg

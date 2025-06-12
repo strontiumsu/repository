@@ -136,6 +136,7 @@ class Clock_Ramsey_exp(Scan1D, EnvExperiment):
         # perform experiment
         self.MOTs.AOMs_off(self.MOTs.AOMs)
         self.STIRAP.AOMs_off(self.STIRAP.AOMs)
+        self.Bragg.AOMs_off(["Bragg1"])
         delay(15*ms)
         
         
@@ -152,6 +153,8 @@ class Clock_Ramsey_exp(Scan1D, EnvExperiment):
         self.Bragg.set_AOM_attens([("Dipole",26.0 )]) # Turn off lattice
         self.Bragg.AOMs_off(["Lattice"])
         delay(20*us)
+        
+        delay(250*us)
         
         if self.Calib_689: # for characterizing 689 frequency
             self.ttl5.on()
@@ -204,19 +207,21 @@ class Clock_Ramsey_exp(Scan1D, EnvExperiment):
 
             # self.ttl5.off()
             
+            
+            ### Ramsey sequence############################
             self.ttl5.on()
             
             self.STIRAP.pulse(self.pi_2_time689, self.STIRAP.urukul_channels[self.STIRAP.index_artiq("689")])
-            delay(0.1*us)
+            delay(0.2*us)
             self.raman_pulse(self.pi_2_timeRaman)
             
             if self.Echo:
                 delay(self.Ramsey_time)
 
                 self.raman_pulse(self.pi_2_timeRaman)
-                delay(0.1*us)
+                delay(-0.2*us)
                 self.STIRAP.pulse(self.pi_time689, self.STIRAP.urukul_channels[self.STIRAP.index_artiq("689")])
-                delay(0.1*us)
+                delay(0.2*us)
                 self.raman_pulse(self.pi_2_timeRaman)
 
             
@@ -225,14 +230,32 @@ class Clock_Ramsey_exp(Scan1D, EnvExperiment):
                 self.STIRAP.switch_profile(1)
 
             self.raman_pulse(self.pi_2_timeRaman)
-            delay(0.1*us)
+            delay(-0.2*us)
             self.STIRAP.pulse(self.pi_2_time689, self.STIRAP.urukul_channels[self.STIRAP.index_artiq("689")])
 
 
             self.ttl5.off()
+            ##############################################
+            
+            ### Rotary pulses:
+            # self.ttl5.on()
+            
+            # self.STIRAP.pulse(self.pi_2_time689, self.STIRAP.urukul_channels[self.STIRAP.index_artiq("689")])
+            # delay(0.2*us)
+            # self.raman_pulse(self.pi_2_timeRaman)
+    
+            # with parallel:
+            #     delay(self.Ramsey_time)
+            #     self.STIRAP.switch_profile(1)
+            # self.raman_pulse(self.pi_2_timeRaman)
+            # delay(-0.2*us)
+            # self.STIRAP.pulse(self.pi_2_time689, self.STIRAP.urukul_channels[self.STIRAP.index_artiq("689")])
+
+            # self.ttl5.off()
+            ###################################################
 
 
-
+            #3P1 viewing
             self.STIRAP.push_pulse(self.MOTs.Push_pulse_time) #seperate for readout
             delay(200*us)
             self.STIRAP.push_pulse(self.MOTs.Push_pulse_time) #seperate for readout
@@ -242,6 +265,24 @@ class Clock_Ramsey_exp(Scan1D, EnvExperiment):
             self.MOTs.AOMs_on(['3P0_repump', '3P2_repump'])
             delay(self.MOTs.Delay_duration)
             self.MOTs.AOMs_off(['3P0_repump', '3P2_repump'])
+            
+            ### 3P0 viewing
+            # delay(200*us)
+            # self.STIRAP.push_pulse(self.MOTs.Push_pulse_time)
+            
+            # self.MOTs.AOMs_on(['3P2_repump'])
+            # delay(200*us)
+            # self.MOTs.AOMs_off(['3P2_repump'])
+            
+            # delay(200*us)
+            # self.STIRAP.push_pulse(self.MOTs.Push_pulse_time)
+            # self.Bragg.set_AOM_attens([("Dipole",12.0 )])
+            # self.Bragg.AOMs_on(["Lattice"])
+            # delay(5*us)
+            
+            # self.MOTs.AOMs_on(['3P0_repump', '3P2_repump'])
+            # delay(self.MOTs.Delay_duration)
+            # self.MOTs.AOMs_off(['3P0_repump', '3P2_repump'])
             
         
             
@@ -275,11 +316,11 @@ class Clock_Ramsey_exp(Scan1D, EnvExperiment):
     @kernel
     def raman_pulse(self, time):
         self.STIRAP.AOMs_on(['688']) # turn on 688 for STIRAP sequence
-        delay(0.05*us)
+        delay(0.1*us)
         self.STIRAP.AOMs_on(["679"]) # turn on 688 for STIRAP sequence
         delay(time)
         self.STIRAP.AOMs_off(['688']) # turn on 688 for STIRAP sequence
-        delay(0.1*us)
+        delay(0.07*us)
         self.STIRAP.AOMs_off(["679"]) # turn on 688 for STIRAP sequence
         
     @kernel
@@ -293,13 +334,13 @@ class Clock_Ramsey_exp(Scan1D, EnvExperiment):
 
 
         self.STIRAP.set_AOM_phase('679', self.STIRAP.freq_679, 0.0, self.t0, 0)
-        self.STIRAP.set_AOM_phase('679', self.STIRAP.freq_679, point, self.t0, 1)
+        self.STIRAP.set_AOM_phase('679', self.STIRAP.freq_679, 0.0, self.t0, 1)
 
 
         self.STIRAP.set_AOM_phase('689', self.STIRAP.freq_689, 0.0, self.t0, 0)
         if self.Calib_689:
             self.STIRAP.set_AOM_phase('689', self.STIRAP.freq_689, point, self.t0, 1)
         else:
-            self.STIRAP.set_AOM_phase('689', self.STIRAP.freq_689, 0.0, self.t0, 1)
+            self.STIRAP.set_AOM_phase('689', self.STIRAP.freq_689, point, self.t0, 1)
         
         self.STIRAP.switch_profile(0)

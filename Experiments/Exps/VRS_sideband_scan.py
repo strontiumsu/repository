@@ -40,7 +40,7 @@ class VRS_sideband_scan_exp(Scan1D, TimeScan, EnvExperiment):
         
         self.scan_dds = self.Bragg.urukul_channels[1]
         
-        self.scan_arguments(times = {'start':10*1e-6,
+        self.scan_arguments(times = {'start':1*1e-6,
             'stop':10*1e-6,
             'npoints':20,
             'unit':"us",
@@ -66,9 +66,10 @@ class VRS_sideband_scan_exp(Scan1D, TimeScan, EnvExperiment):
                               NumberValue(
                                   3*1e6,
                                   min=0.1*1e6,
-                                  max=100.0*1e6,
+                                  max=200.0*1e6,
                                   scale=1e6,
-                                  unit="MHz"),
+                                  unit="MHz",
+                                  ndecimals = 3),
                               "parameters")     
         self.setattr_argument("freq_width", 
                               NumberValue(
@@ -118,10 +119,19 @@ class VRS_sideband_scan_exp(Scan1D, TimeScan, EnvExperiment):
     def load_scan(self):
         self.step_size = int(self.scan_time/(1024*4*ns))
         f0 = self.freq_center + self.freq_width/2
-        f_step = self.freq_width/1023
         if self.freq_width/2 > self.freq_center: raise Exception("Bad Range")
+        
+        #continuous       
+        f_step = self.freq_width / 1023        
         for i in range(1024):
             self.freq_list[i] = f0 - f_step*i
+            
+        ## discrete:
+        # f_step = self.freq_width / 15
+        # for i in range(1024):
+        #     self.freq_list[i] = f0 - int(i/16) * f_step
+            
+            
         self.scan_dds.frequency_to_ram(self.freq_list, self.freq_list_ram)
 
         self.core.break_realtime()
@@ -169,6 +179,7 @@ class VRS_sideband_scan_exp(Scan1D, TimeScan, EnvExperiment):
         self.MOTs.set_current_dir(0)
         delay(10*ms)
         self.MOTs.take_background_image_exp(self.Camera)
+        delay(100*ms)
         self.MOTs.atom_source_on()
         delay(100*ms)
         self.MOTs.AOMs_on(['3D', "3P0_repump", "3P2_repump"])
@@ -193,6 +204,7 @@ class VRS_sideband_scan_exp(Scan1D, TimeScan, EnvExperiment):
         self.core.break_realtime()
         delay(10*ms)
         self.Bragg.set_AOM_attens([("Bragg1", self.Bragg.atten_Bragg1)])
+        #self.Bragg.set_AOM_attens([("Bragg1", point/(1*us))])
         
         delay(10 * ms)
         delay(100*ms)
@@ -209,6 +221,7 @@ class VRS_sideband_scan_exp(Scan1D, TimeScan, EnvExperiment):
         self.scan_dds.set_cfr1(ram_enable=0)
         self.scan_dds.cpld.io_update.pulse_mu(8)
         delay(5*ms)
+        self.MOTs.Blackman_ramp(0.3, 0.0, 30*ms)
         self.MOTs.set_current_dir(0)
         delay(50*ms)
         self.Camera.process_image(bg_sub=True)
@@ -229,10 +242,17 @@ class VRS_sideband_scan_exp(Scan1D, TimeScan, EnvExperiment):
         self.MOTs.rMOT_pulse()
         
         
-        self.MOTs.set_current_dir(1)
-        self.MOTs.set_current(0.85)
         
-        delay(self.dipole_load_time)
+        with parallel:
+            with sequential:
+                # self.MOTs.set_current_dir(1)
+                # self.MOTs.set_current(0.3)
+                delay(10*ms)
+                self.MOTs.ttl7.on()
+                delay(1*ms)
+                self.MOTs.Blackman_ramp(0.0, 0.3, 20*ms)
+        
+            delay(self.dipole_load_time)
         
         for _ in range(int(self.pulses)):
             

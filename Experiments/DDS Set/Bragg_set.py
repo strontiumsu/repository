@@ -37,7 +37,7 @@ class Bragg_set(EnvExperiment):
         self.core.reset()
         self.bragg.init_aoms(on=True)
         
-        if self.Dipole: self.bragg.AOMs_on(["Dipole"])
-        if self.Bragg1: self.bragg.AOMs_on(["Bragg1"])
-        if self.Bragg2: self.bragg.AOMs_on(["Bragg2"])
-        if self.Lattice: self.bragg.AOMs_on(["Lattice"])
+        if not self.Dipole: self.bragg.AOMs_off(["Dipole"])
+        if not self.Bragg1: self.bragg.AOMs_off(["Bragg1"])
+        if not self.Bragg2: self.bragg.AOMs_off(["Bragg2"])
+        if not self.Lattice: self.bragg.AOMs_off(["Lattice"])
