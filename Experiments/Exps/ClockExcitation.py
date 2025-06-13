@@ -49,7 +49,7 @@ class ClockExcitation_exp(Scan1D, TimeFreqScan, EnvExperiment):
             'unit':"us",
             'scale':us,
             'global_step':0.1*us,
-            'ndecimals':2},
+            'ndecimals':4},
              frequencies={
             'start':-3*MHz,
             'stop':3*MHz,

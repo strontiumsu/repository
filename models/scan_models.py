@@ -86,7 +86,7 @@ class AI_Rabi_Model(TimeFreqModel):
         if self.type == 'time':
             fit.fitresults['f'] = np.round(fit.fitresults['f']*1e-6, 3)
             fit.fitresults['tau'] = np.round(fit.fitresults['tau']*1e6, 2)
-            # fit.fitresults['pi time'] = 1
+            # fit.fitresults['pitime'] = 1
         if self.type == 'frequency':
             fit.fitresults['f0'] = np.round(fit.fitresults['f0']*1e-6, 3)
 

@@ -74,20 +74,20 @@ class _Camera(EnvExperiment):
         self.x3 = 500
         
         # 689 horisontal push
-        self.ycen = 110
-        self.xcen = 190
-        self.xydev = 35
-        self.xdev1 = 50
-        self.xdev2 = 30
-        self.ydev = 40
+        # self.ycen = 110
+        # self.xcen = 190
+        # self.xydev = 35
+        # self.xdev1 = 50
+        # self.xdev2 = 30
+        # self.ydev = 40
         
         # 689 horisontal double push
-        # self.ycen = 110
-        # self.xcen = 135
-        # self.xydev = 35
-        # self.xdev1 = 60
-        # self.xdev2 = 60
-        # self.ydev = 50
+        self.ycen = 110
+        self.xcen = 138
+        self.xydev = 35
+        self.xdev1 = 55
+        self.xdev2 = 55
+        self.ydev = 55
         
         # 689 vertical push
         # self.ycen = 110

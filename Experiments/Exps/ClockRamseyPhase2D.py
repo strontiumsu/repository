@@ -190,6 +190,10 @@ class ClockRamseyPhase2D_exp(Scan2D, EnvExperiment):
         # experiment
         self.ttl5.on()       # for triggering start
         
+        ## temperature check
+        
+        
+        
         # -----  3P1 EXCITATION -----------------------
         if self.excited_state=='3P1':
             self.State_Control.pulse_689(self.pi_2_time689)
