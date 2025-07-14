@@ -76,6 +76,7 @@ class DipoleTrapLifetime_exp(Scan1D, TimeScan, EnvExperiment):
         delay(10*ms)
 
         self.MOTs.take_background_image_exp(self.Camera)
+        delay(100*ms)
         self.MOTs.atom_source_on()
         delay(100*ms)
         self.MOTs.AOMs_on(['3D', "3P0_repump", "3P2_repump"])
@@ -111,4 +112,4 @@ class DipoleTrapLifetime_exp(Scan1D, TimeScan, EnvExperiment):
         self.Camera.process_image(bg_sub=True)
         delay(400*ms)
         
-        return self.Camera.get_totalcount_stats_port2()
+        return 0

@@ -121,8 +121,7 @@ class _STATE_CONTROL(EnvExperiment):
         ind = self.index_artiq(aom_name)
         self.freqs[ind] = freq
         ch = self.urukul_channels[ind]
-        ch.set(freq, phase=ph, phase_mode=PHASE_MODE_TRACKING, ref_time_mu=t, profile=prof)
-
+        ch.set(freq, phase=ph, phase_mode=PHASE_MODE_TRACKING,amplitude=0.8, ref_time_mu=t, profile=prof)
     @kernel
     def set_phase_mode(self, mode):
         for i in range(4):
@@ -156,7 +155,7 @@ class _STATE_CONTROL(EnvExperiment):
     @kernel 
     def pulse_688(self,t):
         
-        rewind=550*ns
+        rewind=450*ns
         added=130*ns
         
         delay(-rewind)

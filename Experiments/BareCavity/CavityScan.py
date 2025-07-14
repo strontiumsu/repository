@@ -165,6 +165,8 @@ class bare_cavity_scan_exp(Scan1D, EnvExperiment):
 
         self.Bragg.init_aoms(on=True)
         self.Bragg.AOMs_off(["Bragg1", "Bragg2"])  
+        delay(1*ms)
+        self.Bragg.set_AOM_attens([("Bragg1", self.Bragg.atten_Bragg1), ("Bragg2", self.Bragg.atten_Bragg2)])      
         delay(100*ms)
 
         
@@ -176,12 +178,12 @@ class bare_cavity_scan_exp(Scan1D, EnvExperiment):
         self.core.reset()
         delay(1 * ms)
         self.load_scan()
-        delay(1*ms)
-
+        # delay(10*ms)
+   
         # before this point is just for preparing the RAM and RIGOL
         self.core.break_realtime()
         delay(10*ms)
-        self.Bragg.set_AOM_attens([("Bragg1", self.Bragg.atten_Bragg1)])      
+        self.Bragg.set_AOM_attens([("Bragg1", self.Bragg.atten_Bragg1), ("Bragg2", self.Bragg.atten_Bragg2)])      
         delay(10 * ms)
 
 
@@ -191,11 +193,11 @@ class bare_cavity_scan_exp(Scan1D, EnvExperiment):
         
 
         
-
+        #resets scan to prepapre for next scan
         self.scan_dds.set_cfr1(ram_enable=0)
         self.scan_dds.cpld.io_update.pulse_mu(8)
         
-        
+        # simulate experiment shot rate
         delay(self.pause_time)
         self.core.wait_until_mu(now_mu())
         return 0
@@ -203,7 +205,10 @@ class bare_cavity_scan_exp(Scan1D, EnvExperiment):
     
     @kernel
     def run_exp(self, pspace):
+        self.Bragg.AOMs_on(["Bragg2"])
+        self.scan_dds.sw.on()
 
+        delay(1*ms)
 
         
         for _ in range(int(self.pulses)):
@@ -211,8 +216,7 @@ class bare_cavity_scan_exp(Scan1D, EnvExperiment):
             
             
             with parallel:
-                # self.Bragg.AOMs_on(["Bragg2"])
-                self.scan_dds.sw.on()
+                
                 self.ttl5.on()
                 
                 self.scan_dds.cpld.io_update.pulse_mu(8)
@@ -221,11 +225,13 @@ class bare_cavity_scan_exp(Scan1D, EnvExperiment):
             delay(self.scan_time)
             
             with parallel:
-                self.scan_dds.sw.off()
-                # self.Bragg.AOMs_off(["Bragg2"])
-                self.ttl5.off()      
                 
+                self.ttl5.off()      
+
             delay(pspace)
-            
+
+        delay(1*ms)
+        self.scan_dds.sw.off()
+        self.Bragg.AOMs_off(["Bragg2"])  
         
     

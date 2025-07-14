@@ -70,7 +70,7 @@ class ClockExcitation_exp(Scan1D, TimeFreqScan, EnvExperiment):
         self.setattr_argument("dipole_load_time", NumberValue(20.0*1e-3,min=0.0*1e-3,max=9000.00*1e-3,scale=1e-3,
                       unit="ms"),"Params")
         
-        self.setattr_argument("pi_time_689", NumberValue(1.0*1e-6,min=0.0*1e-6,max=1000.00*1e-6,scale=1e-6,
+        self.setattr_argument("pi_time_689", NumberValue(1.0*1e-6,min=0.0*1e-6,max=1000.00*1e-6,scale=1e-6,ndecimals=3,
                       unit="us"),"Params")
         
         self.setattr_argument("excited_state", EnumerationValue(['3P1', "3P0"], default='3P1'), "Params")
@@ -176,7 +176,7 @@ class ClockExcitation_exp(Scan1D, TimeFreqScan, EnvExperiment):
         delay(20*us)
         
         # experiment
-        self.ttl5.on()       # for triggering sstart
+        self.ttl5.on()       # for triggering start
         
         # -----  3P1 EXCITATION -----------------------
         if self.excited_state=='3P1':
@@ -191,8 +191,11 @@ class ClockExcitation_exp(Scan1D, TimeFreqScan, EnvExperiment):
             self.State_Control.pulse_689(self.pi_time_689)
             delay(0.15*us)
             with parallel:
-                self.State_Control.pulse_688(time)
                 self.State_Control.pulse_679(time)
+                self.State_Control.pulse_688(time)
+                
+            
+                
             self.ttl5.off()
             self.readout(scheme=self.readout_scheme)
                 

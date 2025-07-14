@@ -13,6 +13,7 @@ from artiq.experiment import parallel, sequential, delay, at_mu
 from artiq.experiment import kernel, EnvExperiment
 
 import numpy as np
+from CameraClass import _Camera
 
 
 class _Cooling(EnvExperiment):
@@ -352,10 +353,11 @@ class _Cooling(EnvExperiment):
         self.hold(self.bmot_load_duration)
 
     @kernel
-    def rMOT_pulse(self, sf = True):
+    def rMOT_pulse(self, sf = True, real=True):
 
         self.atom_source_on()
-        self.AOMs_on(["3D", "3P0_repump", "3P2_repump"])
+        if real:
+            self.AOMs_on(["3D", "3P0_repump", "3P2_repump"])
         self.set_current_dir(0)
 
         self.Blackman_ramp_up()
@@ -401,7 +403,8 @@ class _Cooling(EnvExperiment):
         delay(self.rmot_bb_duration)
 
         self.AOMs_off(["3P0_repump","3P2_repump"])
-        self.AOMs_on(["3D_red"])
+        if real:
+            self.AOMs_on(["3D_red"])
         self.linear_ramp(self.rmot_bb_current, self.rmot_sf_current, self.rmot_ramp_duration, self.Npoints)
 
 
@@ -445,14 +448,14 @@ class _Cooling(EnvExperiment):
     @kernel
     def take_MOT_image(self, cam):
         self.atom_source_off()
-        self.AOMs_off(['3P0_repump', '3P2_repump', '3D','3D_red'])
+        self.AOMs_off(['3P0_repump', '3P2_repump','3D', '3D_red'])
         self.set_AOM_freqs([('3D', self.f_MOT3D_detect)])
         self.set_AOM_attens([('3D', 6.0)])
         delay(1*ms)
         with parallel:
             cam.trigger_camera()
             with sequential:
-                #self.AOMs_on(['3P0_repump', '3P2_repump', '3D'])
+                self.AOMs_on(['3P0_repump', '3P2_repump', '3D'])
                 self.AOMs_on(['3D'])
                 delay(self.Detection_pulse_time)
                 self.AOMs_off(['3D'])

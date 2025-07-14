@@ -184,7 +184,7 @@ class ClockRamseyPhase_exp(Scan1D, EnvExperiment):
         # -----  3P0 EXCITATION -----------------------
         elif self.excited_state=='3P0':
             self.State_Control.pulse_689(self.pi_2_time689)
-            delay(0.15*us)
+            delay(0.1*us)
             with parallel:
                 self.State_Control.pulse_688(self.pi_timeRaman)
                 self.State_Control.pulse_679(self.pi_timeRaman)
@@ -194,7 +194,7 @@ class ClockRamseyPhase_exp(Scan1D, EnvExperiment):
             with parallel:
                 self.State_Control.pulse_688(self.pi_timeRaman)
                 self.State_Control.pulse_679(self.pi_timeRaman)
-            delay(0.15*us)
+            delay(0.25*us)
             self.State_Control.pulse_689(self.pi_2_time689)
             
             self.ttl5.off()

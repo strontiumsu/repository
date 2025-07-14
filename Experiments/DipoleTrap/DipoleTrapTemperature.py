@@ -108,7 +108,7 @@ class DipoleTrapTemperature_exp(Scan1D, TimeScan, EnvExperiment):
 
 
 
-        self.Bragg.set_AOM_attens([("Dipole",24.0 )])
+        self.Bragg.set_AOM_attens([("Dipole",27.0 )])
         self.Bragg.AOMs_off(["Lattice"])
 
 
@@ -137,11 +137,14 @@ class DipoleTrapTemperature_exp(Scan1D, TimeScan, EnvExperiment):
         data = np.array(self.Camera.get_dataset('gaussianparams'))
         A, center_y, center_x, sigma_y_2, sigma_x_2, offset = data[:,0], data[:,1], data[:,2], data[:,3],data[:,4], data[:,5]
         t=self.get_scan_points()
+
         
         popt, _ = curve_fit(self.quadratic,list(t),center_y,maxfev=20000);
 
+
         ###g/2 = a pixels/ms^2 = 9.8m/s^2 =
         pix2um = 9.81e6/(popt[0]*2)
+
         
         sigma_y_2*=pix2um**2
         sigma_x_2*=pix2um**2
@@ -150,6 +153,8 @@ class DipoleTrapTemperature_exp(Scan1D, TimeScan, EnvExperiment):
      
         popt_temp_x, _ = curve_fit(self.quadratic,list(t),sigma_x_2,maxfev=20000);     
         popt_temp_y, _ = curve_fit(self.quadratic,list(t),sigma_y_2,maxfev=20000);
+        
+        print(popt_temp_x)
 
 
         M  = constants.value('atomic mass constant')*87.9

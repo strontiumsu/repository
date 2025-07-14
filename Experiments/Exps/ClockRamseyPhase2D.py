@@ -76,11 +76,11 @@ class ClockRamseyPhase2D_exp(Scan2D, EnvExperiment):
         self.setattr_argument("dipole_load_time", NumberValue(20.0*1e-3,min=0.0*1e-3,max=9000.00*1e-3,scale=1e-3,
                       unit="ms"),"Params")
         
-        self.setattr_argument("pi_2_time689", NumberValue(1.0*1e-6,min=0.0*1e-6,max=1000.00*1e-6,scale=1e-6,
+        self.setattr_argument("pi_2_time689", NumberValue(1.0*1e-6,min=0.0*1e-6,max=1000.00*1e-6,scale=1e-6,ndecimals=3,
                       unit="us"),"Params")
-        self.setattr_argument("pi_time689", NumberValue(1.0*1e-6,min=0.0*1e-6,max=1000.00*1e-6,scale=1e-6,
+        self.setattr_argument("pi_time689", NumberValue(1.0*1e-6,min=0.0*1e-6,max=1000.00*1e-6,scale=1e-6,ndecimals=3,
                       unit="us"),"Params")
-        self.setattr_argument("pi_timeRaman", NumberValue(1.0*1e-6,min=0.0*1e-6,max=1000.00*1e-6,scale=1e-6,
+        self.setattr_argument("pi_timeRaman", NumberValue(1.0*1e-6,min=0.0*1e-6,max=1000.00*1e-6,scale=1e-6,ndecimals=3,
                       unit="us"),"Params")
         self.setattr_argument("Ramsey_time", NumberValue(10.0*1e-6,min=0.0*1e-6,max=1000.00*1e-6,scale=1e-6,
                       unit="us"),"Params")
@@ -163,14 +163,16 @@ class ClockRamseyPhase2D_exp(Scan2D, EnvExperiment):
         delay(10*ms)
         self.Camera.arm()
         delay(200*ms)
-        self.t0 = now_mu()
-        # sets the phase for everything, 
-        self.set_phases(point)
+
         
 
         
         self.MOTs.AOMs_off(self.MOTs.AOMs)
         self.State_Control.AOMs_off(self.State_Control.AOMs)
+        delay(1*ms)
+        self.State_Control.set_AOM_attens([("689", self.State_Control.atten_689),
+                                           ("679", self.State_Control.atten_679),
+                                           ("688", self.State_Control.atten_688)])
         delay(1*ms)
 
         
@@ -178,8 +180,10 @@ class ClockRamseyPhase2D_exp(Scan2D, EnvExperiment):
         self.MOTs.rMOT_pulse()
         
         # hold in dipole trap while changing MOT config
+        self.t0 = now_mu()
         with parallel:
             delay(self.dipole_load_time)
+            self.set_phases(point)
             with sequential:
                 self.MOTs.set_current_dir(1) # XXX let MOT field go to zero and switch H-bridge, 5ms
                 self.MOTs.set_current(self.B_field)
@@ -190,8 +194,7 @@ class ClockRamseyPhase2D_exp(Scan2D, EnvExperiment):
         # experiment
         self.ttl5.on()       # for triggering start
         
-        ## temperature check
-        
+    
         
         
         # -----  3P1 EXCITATION -----------------------
@@ -202,8 +205,10 @@ class ClockRamseyPhase2D_exp(Scan2D, EnvExperiment):
                 self.State_Control.pulse_689(self.pi_time689)
             
             with parallel:
-                delay(self.delay_exp)
-                self.State_Control.switch_profile(1)
+                #delay(1.2*us) # ensures the profile has enough time to switch
+                #delay(self.delay_exp)
+                delay(self.delay_exp*point[1]+1.2*us)
+                #self.State_Control.switch_profile(1)
             self.State_Control.pulse_689(self.pi_2_time689)
             self.ttl5.off()
         
@@ -216,33 +221,123 @@ class ClockRamseyPhase2D_exp(Scan2D, EnvExperiment):
         # -----  3P0 EXCITATION -----------------------
         elif self.excited_state=='3P0':
             self.State_Control.pulse_689(self.pi_2_time689)
-            delay(0.15*us)
+            delay(0.1*us)
             with parallel:
                 self.State_Control.pulse_688(self.pi_timeRaman)
                 self.State_Control.pulse_679(self.pi_timeRaman)
                 
             if self.Echo:
-                delay(self.delay_exp)
+                #delay(500*us)
+                #delay(self.delay_exp)
+                delay(self.delay_exp*point[1])
+                
+                ### Procedure 1
                 self.State_Control.pulse_689(self.pi_time689)
-                delay(0.15*us)
+                delay(0.1*us)
                 with parallel:
                     self.State_Control.pulse_688(self.pi_timeRaman)
                     self.State_Control.pulse_679(self.pi_timeRaman)
-                delay(0.15*us)
+                delay(0.25*us)
                 self.State_Control.pulse_689(self.pi_time689)
                 
+                ### Procedure 2
+                # with parallel:
+                #     self.State_Control.pulse_688(self.pi_timeRaman)
+                #     self.State_Control.pulse_679(self.pi_timeRaman)
+                # delay(0.25*us)
+                # self.State_Control.pulse_689(self.pi_time689)
+                # delay(0.1*us)
+                # with parallel:
+                #     self.State_Control.pulse_688(self.pi_timeRaman)
+                #     self.State_Control.pulse_679(self.pi_timeRaman)
+                
             with parallel:
-                delay(self.delay_exp)
-                self.State_Control.switch_profile(1)
+                #delay(self.delay_exp)
+                delay(self.delay_exp*point[1])
+                #self.State_Control.switch_profile(1)
             with parallel:
                 self.State_Control.pulse_688(self.pi_timeRaman)
                 self.State_Control.pulse_679(self.pi_timeRaman)
-            delay(0.15*us)
+            delay(0.25*us)
             self.State_Control.pulse_689(self.pi_2_time689)
+            
             
             self.ttl5.off()
             
             self.readout(scheme=self.readout_scheme)
+            
+        # # -----  3P0 EXCITATION -----------------------
+        # elif self.excited_state=='3P0':
+        #     self.State_Control.pulse_689(self.pi_2_time689)
+        #     delay(0.1*us)
+        #     with parallel:
+        #         self.State_Control.pulse_688(self.pi_timeRaman)
+        #         self.State_Control.pulse_679(self.pi_timeRaman)
+             
+        #     ### Pi_X #############################################
+        #     delay(self.delay_exp*point[1]/2)
+        #     self.State_Control.pulse_689(self.pi_time689)
+        #     delay(0.1*us)
+        #     with parallel:
+        #         self.State_Control.pulse_688(self.pi_timeRaman)
+        #         self.State_Control.pulse_679(self.pi_timeRaman)
+        #     delay(0.25*us)
+        #     self.State_Control.pulse_689(self.pi_time689)
+            
+        #     with parallel:
+        #         delay(self.delay_exp*point[1])
+        #         self.State_Control.switch_profile(1)
+                
+        #     ### Pi_Y #############################################
+        #     self.State_Control.pulse_689(self.pi_time689)
+        #     delay(0.1*us)
+        #     with parallel:
+        #         self.State_Control.pulse_688(self.pi_timeRaman)
+        #         self.State_Control.pulse_679(self.pi_timeRaman)
+        #     delay(0.25*us)
+        #     self.State_Control.pulse_689(self.pi_time689)
+            
+        #     with parallel:
+        #         delay(self.delay_exp*point[1])
+        #         self.State_Control.switch_profile(0)
+                
+        #     ### Pi_X #############################################
+        #     self.State_Control.pulse_689(self.pi_time689)
+        #     delay(0.1*us)
+        #     with parallel:
+        #         self.State_Control.pulse_688(self.pi_timeRaman)
+        #         self.State_Control.pulse_679(self.pi_timeRaman)
+        #     delay(0.25*us)
+        #     self.State_Control.pulse_689(self.pi_time689)
+            
+        #     with parallel:
+        #         delay(self.delay_exp*point[1])
+        #         self.State_Control.switch_profile(1)
+                
+        #     ### Pi_Y #############################################
+        #     self.State_Control.pulse_689(self.pi_time689)
+        #     delay(0.1*us)
+        #     with parallel:
+        #         self.State_Control.pulse_688(self.pi_timeRaman)
+        #         self.State_Control.pulse_679(self.pi_timeRaman)
+        #     delay(0.25*us)
+        #     self.State_Control.pulse_689(self.pi_time689)
+            
+        #     with parallel:
+        #         delay(self.delay_exp*point[1]/2)
+        #         self.State_Control.switch_profile(0)
+                
+        #     ### close #############################################
+        #     with parallel:
+        #         self.State_Control.pulse_688(self.pi_timeRaman)
+        #         self.State_Control.pulse_679(self.pi_timeRaman)
+        #     delay(0.25*us)
+        #     self.State_Control.pulse_689(self.pi_2_time689)
+            
+            
+        #     self.ttl5.off()
+            
+        #     self.readout(scheme=self.readout_scheme)
                 
                 
                 
@@ -342,6 +437,7 @@ class ClockRamseyPhase2D_exp(Scan2D, EnvExperiment):
                 
     @kernel
     def set_phases(self, point):
+
         self.State_Control.set_AOM_phase('688', self.State_Control.freq_688, 0.0, self.t0, 0)
         self.State_Control.set_AOM_phase('688', self.State_Control.freq_688, 0.0, self.t0, 1)
 
@@ -356,6 +452,7 @@ class ClockRamseyPhase2D_exp(Scan2D, EnvExperiment):
 
         self.State_Control.set_AOM_phase('689', self.State_Control.freq_689, 0.0, self.t0, 0)
         self.State_Control.set_AOM_phase('689', self.State_Control.freq_689, point[1], self.t0, 1)
+        #self.State_Control.set_AOM_phase('689', self.State_Control.freq_689,0.0, self.t0, 1)
         
         self.State_Control.switch_profile(0)
         
