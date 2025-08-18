@@ -83,8 +83,12 @@ class DipoleTrapLifetime_exp(Scan1D, TimeScan, EnvExperiment):
         delay(200*ms)
         self.MOTs.AOMs_off(['3D', "3P0_repump", "3P2_repump"])
         self.MOTs.atom_source_off()
+        
+        
+    
 
-
+    def before_measure(self, point, measurement):
+        self.Camera.arm()
 
 
     @kernel
@@ -92,13 +96,17 @@ class DipoleTrapLifetime_exp(Scan1D, TimeScan, EnvExperiment):
         t_delay = point
         self.core.wait_until_mu(now_mu())
         self.core.reset()
-        self.Camera.arm()
-        delay(200*ms)
+        
+        self.MOTs.init_rmot_dds(self.MOTs.rmot_freq_i, self.MOTs.rmot_freq_f, self.MOTs.rmot_freq_depth_i, self.MOTs.rmot_freq_depth_f, self.MOTs.freq_3D_red)
+        delay(10 * ms)
+        
+        
 
-        self.MOTs.AOMs_off(self.MOTs.AOMs)
+        self.MOTs.AOMs_off_all()
         delay(10*ms)
 
-        self.MOTs.rMOT_pulse()
+        #self.MOTs.rMOT_pulse()
+        self.MOTs.rMOT_pulse_new(sf=False)
         delay(self.load_time)
 
 

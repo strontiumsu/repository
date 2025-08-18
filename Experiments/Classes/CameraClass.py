@@ -53,7 +53,8 @@ class _Camera(EnvExperiment):
         if self.get_is_armed(): self.disarm()
         self.cam.set_exposure(self.Exposure_Time)
         self.cam.set_gain(self.Hardware_Gain)
-        #self.cam.set_roi(1150,1075,100,150) ###USED for 3-photon 689
+        #self.cam.set_roi(1200,1400,1000,1000) ###USED for 3-photon 689
+        
         self.cam.set_roi(1250,1425,400,300)
         self.cam_range = (50,-40, 30,-10)
         self.cam.get_all_images() ## clears buffer
@@ -74,12 +75,12 @@ class _Camera(EnvExperiment):
         self.x3 = 500
         
         # # 689 horisontal push
-        self.ycen = 110
+        self.ycen = 120
         self.xcen = 190
         self.xydev = 35
         self.xdev1 = 50
         self.xdev2 = 30
-        self.ydev = 40
+        self.ydev = 60
         
         # 689 horisontal double push
         # self.ycen = 110

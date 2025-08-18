@@ -18,7 +18,7 @@ class _STATE_CONTROL(EnvExperiment):
         self.setattr_device("core")
         self.setattr_device("urukul0_cpld")
         
-        self.setattr_device("ttl7") # for general triggering
+        self.setattr_device("ttl6") # for opening cvity clearn channel
 
         # names for all our AOMs
         self.AOMs = ["688", 'Push', '679', "689"]
@@ -29,7 +29,7 @@ class _STATE_CONTROL(EnvExperiment):
 
         self.attens = [8.0, 6.0, 6.0, 12.0]
 
-        self.freqs = [80.0, 205.0, 200.14, 190.0]
+        self.freqs = [80.0, 205.0, 200.0, 200.0]
 
         self.urukul_channels = [self.get_device("urukul0_ch0"),
                                 self.get_device("urukul0_ch1"), 
@@ -83,6 +83,13 @@ class _STATE_CONTROL(EnvExperiment):
         with parallel:
             for aom in AOMs:
                 self.urukul_channels[self.index_artiq(aom)].sw.off()
+                
+    @kernel 
+    def AOMs_off_all(self):
+        self.urukul_channels[0].sw.off()
+        self.urukul_channels[1].sw.off()
+        self.urukul_channels[2].sw.off()
+        self.urukul_channels[3].sw.off()
 
     @kernel
     def set_AOM_freqs(self, freq_list): # takes in a list of tuples
@@ -94,6 +101,18 @@ class _STATE_CONTROL(EnvExperiment):
                 set_freq = ch.frequency_to_ftw(freq)
                 set_asf = ch.amplitude_to_asf(self.scales[ind])
                 ch.set_mu(set_freq, asf=set_asf)
+
+    @kernel 
+    def set_AOM_freq_689(self,freq):
+        self.urukul_channels[3].set(frequency=freq,amplitude=0.8)    
+        
+    @kernel 
+    def set_AOM_freq_679(self,freq):
+        self.urukul_channels[2].set(frequency=freq,amplitude=0.8)    
+        
+    @kernel 
+    def set_AOM_freq_688(self,freq):
+        self.urukul_channels[0].set(frequency=freq,amplitude=0.8)    
 
 
     @kernel
@@ -146,9 +165,20 @@ class _STATE_CONTROL(EnvExperiment):
         
     @kernel 
     def push_pulse(self,t):
+        self.ttl6.off()
         self.urukul_channels[1].sw.on()
         delay(t)
         self.urukul_channels[1].sw.off()
+        
+    @kernel 
+    def cav_clear_pulse(self,t):
+        #self.urukul_channels[1].set(frequency=self.freq_Push,amplitude=0.8) # sets frequency for shared aom drive to use 2nd order diffraction
+        self.ttl6.on() #switches to drive cavity clear aom
+        self.urukul_channels[1].sw.on()
+        delay(t)
+        self.urukul_channels[1].sw.off()
+        self.ttl6.off()
+        #self.urukul_channels[1].set(frequency=self.freq_Push,amplitude=0.8)
         
 
         

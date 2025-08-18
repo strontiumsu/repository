@@ -16,20 +16,6 @@ from CameraClass import _Camera
 
 
 class Red_MOT_pulse_exp(EnvExperiment):
-    """
-    Red_MOT_pulse_exp
-    This experiment uses the CoolingClass to control the relevant AOMs and MOT
-    coils to pulse the Red MOT off and on, taking an image each time to display to the user
-    at detection.images.current_image.
-
-    parameters:
-        <all parameters inherited from CoolingClass>
-        <all parameters inherited from Detection2>
-        pulses: number of times to pulse the red MOT
-        wait_time: how long to wait between pulses
-
-    """
-
     def build(self):
         self.setattr_device("core")
         self.setattr_device("scheduler")
@@ -42,42 +28,58 @@ class Red_MOT_pulse_exp(EnvExperiment):
         self.setattr_argument("wait_time", NumberValue(1000.0*1e-3,min=0.0*1e-3,max=9000.00*1e-3,scale=1e-3,
                       unit="ms"),"parameters")
         self.setattr_argument("broadband",BooleanValue(False),"parameters")
+        self.scan_list = np.linspace(20*ms, 100*ms, 25)
+
 
 
     def prepare(self):
         # initial datasets for the aoms and mot coils, does not run on core
         self.MOTs.prepare_aoms()
         self.MOTs.prepare_coils()
-
         # Initialize camera
         self.Camera.camera_init()
-
-
-    @kernel
+        
+     
+        
     def run(self):
         # initial devices
+        self.init_exp()     
+        self.run_exp()
+        self.cleanup()
+
+
+
+
+    @kernel 
+    def init_exp(self):
         self.core.reset()
+        delay(10*ms)
         self.MOTs.init_coils()
         self.MOTs.init_ttls()
         self.MOTs.init_aoms(on=False)
+        delay(10*ms)
+        self.MOTs.init_rmot_dds(self.MOTs.rmot_freq_i, self.MOTs.rmot_freq_f, self.MOTs.rmot_freq_depth_i,self.MOTs.rmot_freq_depth_f, self.MOTs.freq_3D_red)
+        delay(100*ms)
+
+        self.MOTs.take_background_image_exp(self.Camera)
         delay(100*ms)
         
-        # take image for bg sub
-        self.MOTs.take_background_image_exp(self.Camera)
-        delay(500*ms)
+        self.core.wait_until_mu(now_mu())
         
-        for m in range(int(self.pulses)):
+        
+    @kernel
+    def run_exp(self):
+        self.core.reset()
+        delay(10*ms)
+        for i in range(int(self.pulses)):
+            delay(10*ms)
             self.Camera.arm()
-            delay(200*ms)
-            if self.broadband:
-                #self.MOTs.rMOT_broadband_pulse(50*ms)
-                self.MOTs.rMOT_pulse(sf=False)
-                delay(self.wait_time)
-            else:
-                self.MOTs.rMOT_pulse(sf=True)
-                delay(self.wait_time)
-
-
+            delay(500*ms)  
+            
+            # edit variables for scanning here
+            #self.MOTs.rMOT_pulse(sf=False)
+            self.MOTs.rMOT_pulse_new(sf=not self.broadband, atten_scale_factor=2.67)
+            delay(self.wait_time)
             self.MOTs.take_MOT_image(self.Camera)
             delay(10*ms)
             self.Camera.process_image(bg_sub=True)
@@ -85,9 +87,16 @@ class Red_MOT_pulse_exp(EnvExperiment):
             self.core.wait_until_mu(now_mu())
             delay(200*ms)
             self.MOTs.AOMs_off(['3P0_repump', '3P2_repump', '3D'])
-
-            #self.Camera.get_count_stats(m)
             delay(self.wait_time)
-
-        self.MOTs.AOMs_on(['3P0_repump', '3P2_repump', '3D',"3D_red"])
+            
+    @kernel
+    def cleanup(self):
+        self.core.reset()
+        delay(20*ms)
+        for i in range(3):
+            self.MOTs.urukul_channels[i].sw.on()
         self.MOTs.atom_source_on()
+        
+         
+    
+       
