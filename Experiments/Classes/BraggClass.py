@@ -7,7 +7,8 @@ Created on Mon Feb 14 15:48:49 2022
 
 """
 
-from artiq.experiment import EnvExperiment, NumberValue, delay, ms, kernel, TInt32, parallel
+from artiq.experiment import EnvExperiment, NumberValue, delay, ms, kernel, TInt32, parallel, us
+from artiq import *
 import numpy as np
 
 from artiq.coredevice.ad9910 import PHASE_MODE_TRACKING
@@ -28,12 +29,8 @@ class _Bragg(EnvExperiment):
 
         # default values for all params for all AOMs
         self.scales = [0.8, 0.8, 0.8, 0.8]
-
         self.attens = [12.0, 6.0, 6.0, 3.0]
-        # self.attens = [18.0, 5.0, 20.0, 20.0]
-
         self.freqs = [80.0, 80.0, 80.0, 80.0]
-        # self.freqs = [110.0, 110.0, 80.00000, 200.0]
 
 
         self.urukul_channels = [self.get_device("urukul2_ch0"),
@@ -55,24 +52,42 @@ class _Bragg(EnvExperiment):
         self.freqs = [self.freq_Dipole, self.freq_Bragg1, self.freq_Bragg2, self.freq_Lattice]
 
     @kernel
-    def init_aoms(self, on=False):
-        delay(50*ms)
+    def init_aoms(self, switches):
+        delay(1*ms)     
         self.urukul2_cpld.init()
-        for i in range(len(self.AOMs)):
-            delay(2*ms)
-
+        
+        for i in range(4):
             ch = self.urukul_channels[i]
             ch.init()
-
-            set_f = ch.frequency_to_ftw(self.freqs[i])
-            set_asf = ch.amplitude_to_asf(self.scales[i])
-            ch.set_mu(set_f, asf=set_asf)
-            ch.set_att(self.attens[i])
-            if on:
+            if ( switches >> i ) & 0b1 == 1:
                 ch.sw.on()
             else:
-                ch.sw.off()
-        delay(50*ms)
+                ch.sw.off()               
+            ch.set_att(self.attens[i])
+            ch.set(self.freqs[i], 0.0, self.scales[i])
+            delay(0.1*ms)
+
+        delay(0.1*ms)
+        
+        
+        
+        
+        
+        # for i in range(len(self.AOMs)):
+        #     delay(2*ms)
+
+        #     ch = self.urukul_channels[i]
+        #     ch.init()
+
+        #     set_f = ch.frequency_to_ftw(self.freqs[i])
+        #     set_asf = ch.amplitude_to_asf(self.scales[i])
+        #     ch.set_mu(set_f, asf=set_asf)
+        #     ch.set_att(self.attens[i])
+        #     if on:
+        #         ch.sw.on()
+        #     else:
+        #         ch.sw.off()
+        # delay(50*ms)
 
 
     # basic AOM methods
@@ -81,9 +96,6 @@ class _Bragg(EnvExperiment):
         with parallel:
             for aom in AOMs:
                 self.urukul_channels[self.index_artiq(aom)].sw.on()
-
-
-
 
 
     @kernel

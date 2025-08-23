@@ -23,21 +23,35 @@ class Bragg_set(EnvExperiment):
         self.setattr_argument("Bragg2", BooleanValue(False))
         self.setattr_argument("Lattice", BooleanValue(False))
 
-        self.aoms_off = []
-        if not self.Dipole:self.aoms_off.append('Dipole')
-        if not self.Bragg1:self.aoms_off.append('Bragg1')
-        if not self.Bragg2:self.aoms_off.append('Bragg2')
-        if not self.Lattice:self.aoms_off.append('Lattice')
+        
 
     def prepare(self):
         self.bragg.prepare_aoms()
 
     @kernel
     def run(self):
+        switch_state = ((1<<0 if self.Dipole  else 0) |
+                       (1<<1 if self.Bragg1  else 0) |
+                       (1<<2 if self.Bragg2  else 0) |
+                       (1<<3 if self.Lattice else 0) )
         self.core.reset()
-        self.bragg.init_aoms(on=True)
+        self.bragg.init_aoms(switches=switch_state) 
+        delay(1*ms)
         
-        if not self.Dipole: self.bragg.AOMs_off(["Dipole"])
-        if not self.Bragg1: self.bragg.AOMs_off(["Bragg1"])
-        if not self.Bragg2: self.bragg.AOMs_off(["Bragg2"])
-        if not self.Lattice: self.bragg.AOMs_off(["Lattice"])
+        
+        
+        
+        
+        
+        
+        
+
+        # if not self.Dipole: self.bragg.AOMs_off(["Dipole"])
+        # if not self.Bragg1: self.bragg.AOMs_off(["Bragg1"])
+        # if not self.Bragg2: self.bragg.AOMs_off(["Bragg2"])
+        # if not self.Lattice: self.bragg.AOMs_off(["Lattice"])
+# self.aoms_off = []
+        # if not self.Dipole:self.aoms_off.append('Dipole')
+        # if not self.Bragg1:self.aoms_off.append('Bragg1')
+        # if not self.Bragg2:self.aoms_off.append('Bragg2')
+        # if not self.Lattice:self.aoms_off.append('Lattice')

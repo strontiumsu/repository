@@ -244,9 +244,10 @@ class squeeze(Scan1D, TimeFreqScan, EnvExperiment):
         
         # generate red mot
         #self.MOTs.rMOT_pulse()
-        self.MOTs.rMOT_pulse_new(sf=False, atten_scale_factor=2.2)
+        self.MOTs.rMOT_pulse_new(sf=False, atten_scale_factor=2.67)
         
         # hold in dipole trap while changing MOT config
+        #probably this gets commented out
         with parallel:
             delay(self.dipole_load_time)
             with sequential:
@@ -260,6 +261,8 @@ class squeeze(Scan1D, TimeFreqScan, EnvExperiment):
         # experiment
         
         #######replace/rewrite? monitor dipole trap -> trigger 
+        ###send probe through at ~2x desired/ultimate superposition VRS 
+        ##trigger continuing in code to state prep when probe transmits 
         if self.pre_measurement:
         # -----  Measure VRS with all atoms -----------------------
             self.Bragg.AOMs_on(["Bragg2"])
@@ -273,9 +276,34 @@ class squeeze(Scan1D, TimeFreqScan, EnvExperiment):
                 self.ttl5.off()
             self.Bragg.AOMs_off(["Bragg2"])
         ######################### to replace
+            # self.Bragg.AOMs_on(["Bragg2"])
+            # self.Bragg.set_freq([("Bragg2",self.freq_center)])            
+            with parallel:
+                delay(self.dipole_load_time)
+                with sequential:
+                    self.MOTs.set_current_dir(1) # XXX let MOT field go to zero and switch H-bridge, 5ms
+                    self.MOTs.set_current(self.B_field)
+        
+            delay(1000*us)
+            delay(20*us)
+        
+            
+            
+            
+            
+            # with parallel:
+            #     self.ttl5.on()
+            #     self.scan_dds.cpld.io_update.pulse_mu(8)
+            # delay(self.scan_time)
+            # with parallel:
+            #     self.scan_dds.sw.off()
+            #     self.ttl5.off()
+            # self.Bragg.AOMs_off(["Bragg2"])
+        
+        
         
         # -----  Excitation -----------------------
-        ##prep all in 3P0
+        #----- prep all in 3P0 -----------------------
         self.ttl5.off()
         
         if self.cavity_clear:
@@ -296,7 +324,6 @@ class squeeze(Scan1D, TimeFreqScan, EnvExperiment):
             # delay(0.3*us)
             # self.State_Control.pulse_689(self.pi_time_689)
             
-  
         else:    
             self.State_Control.pulse_689(self.pi_time_689)
             delay(0.15*us)
@@ -307,7 +334,7 @@ class squeeze(Scan1D, TimeFreqScan, EnvExperiment):
         self.ttl5.off()
         
         
-        ##### now ground-clock superposition
+        #----- clock-ground superposition -----------------------
         self.State_Control.pulse_689(self.pi_time_689)
         delay(0.15*us)
         with parallel:
@@ -315,9 +342,8 @@ class squeeze(Scan1D, TimeFreqScan, EnvExperiment):
             self.State_Control.pulse_688(self.pi_2_time689)
         
         
-        
         delay(200*us)
-        #-----  Measure VRS with after excitation -----------------------
+        #-----  500us VRS probe -----------------------
         self.Bragg.AOMs_on(["Bragg2"])
         with parallel:
             self.scan_dds.sw.on()
@@ -328,14 +354,29 @@ class squeeze(Scan1D, TimeFreqScan, EnvExperiment):
             self.scan_dds.sw.off()
             self.ttl5.off()
         self.Bragg.AOMs_off(["Bragg2"])
+        ####rewrite: sit don't scan
+        # self.Bragg.AOMs_on(["Bragg2"])
+        # with parallel:
+        #     self.scan_dds.sw.on()
+        #     self.ttl5.on()
+        #     self.scan_dds.cpld.io_update.pulse_mu(8)
+        # delay(self.scan_time)
+        # with parallel:
+        #     self.scan_dds.sw.off()
+        #     self.ttl5.off()
+        # self.Bragg.AOMs_off(["Bragg2"])
         
         
+        
+        #-----  repump -----------------------
         self.MOTs.aom_3P0.sw.on()
         self.MOTs.aom_3P2.sw.on()
         delay(200*us)
         self.MOTs.aom_3P0.sw.off()
         self.MOTs.aom_3P2.sw.off()
-        #-----  Measure VRS with after excitation -----------------------
+        
+        
+        #-----  measure VRS after excitation -----------------------
         self.Bragg.AOMs_on(["Bragg2"])
         with parallel:
             self.scan_dds.sw.on()

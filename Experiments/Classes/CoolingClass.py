@@ -83,7 +83,7 @@ class _Cooling(EnvExperiment):
         self.setattr_argument("bmot_load_duration", NumberValue(1000.0*1e-3,min=10.0*1e-3,max=9000.00*1e-3,scale=1e-3,
                       unit="ms"),"Blue MOT") # how long to hold blue mot on to load atoms
         
-        self.setattr_argument("Npoints",NumberValue(60,min=0,max=100.00),"Blue MOT")
+        self.setattr_argument("Npoints",NumberValue(60,min=0,max=500.00),"Blue MOT")
         
         
         
@@ -529,8 +529,8 @@ class _Cooling(EnvExperiment):
         delay(0.5*us)
         
         # ramp up to broad band red mot current and hold
-        #self.Blackman_ramp(self.bmot_current + binc, self.rmot_bb_current, 20*ms)
-        self.set_current(self.rmot_bb_current)
+        self.Blackman_ramp(self.bmot_current + binc, self.rmot_bb_current, 20*ms)
+        # self.set_current(self.rmot_bb_current)
         delay(self.rmot_bb_duration)
         
         # turn off repumpers
@@ -566,9 +566,9 @@ class _Cooling(EnvExperiment):
         # if sf:
         #     self.Blackman_ramp(self.rmot_sf_current, 0.0, 10*ms)
         # else:
-        self.set_current(0.0)
+        # self.set_current(0.0)
             
-        #self.Blackman_ramp(self.rmot_sf_current, 0.0, 10*ms)
+        self.Blackman_ramp(self.rmot_sf_current, 0.0, 20*ms)
 
         
     @kernel 
@@ -773,7 +773,7 @@ class _Cooling(EnvExperiment):
 
     @kernel
     def take_MOT_image(self, cam):
-        self.atom_source_off()
+        #self.atom_source_off()
         self.AOMs_off_all()
         #self.set_AOM_freqs([('3D', self.f_MOT3D_detect)])
         self.aom_3D_blue.set(frequency=self.f_MOT3D_detect,amplitude=0.8)

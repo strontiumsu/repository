@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-Created on Mon Nov  4 11:01:45 2024
+Created on Mon Aug 18 14:56:45 2025
 
-@author: ejporter
+@author: sr
 """
 
 from artiq.experiment import *
@@ -16,12 +16,13 @@ from BraggClass import _Bragg
 from repository.models.scan_models import RabiModel
 
 
-class VRS_sideband_scan_exp(Scan1D, TimeScan, EnvExperiment):
+class TTL_VRS(Scan1D, TimeScan, EnvExperiment):
     
     def build(self, **kwargs):
         
         super().build(**kwargs)
         self.setattr_device("ttl5") # triggering pulse
+        self.setattr_device("ttl0")             #sets drivers of TTL0 as attributes
 
         # import classes for experiment control
         self.MOTs = _Cooling(self)
@@ -74,8 +75,8 @@ class VRS_sideband_scan_exp(Scan1D, TimeScan, EnvExperiment):
         self.setattr_argument("freq_width", 
                               NumberValue(
                                   1*1e6,
-                                  min=-20.0*1e6,
-                                  max=20.0*1e6,
+                                  min=-10.0*1e6,
+                                  max=10.0*1e6,
                                   scale=1e6,
                                   unit="MHz"),
                               "parameters")
@@ -96,7 +97,10 @@ class VRS_sideband_scan_exp(Scan1D, TimeScan, EnvExperiment):
                               "parameters")
 
         self.freq_list= np.linspace(80.0*MHz, 80.0*MHz, 1024)
+        self.freq_list2= np.linspace(80.0*MHz, 80.0*MHz, 1024)
+
         self.freq_list_ram = np.full(1024, 1)
+        self.freq_list_ram2 = np.full(1024, 1)
         self.step_size=0
         
         
@@ -115,22 +119,21 @@ class VRS_sideband_scan_exp(Scan1D, TimeScan, EnvExperiment):
         self.register_model(self.model, measurement=False, fit=False)
         
         
+        
     @kernel
     def load_scan(self):
         self.step_size = int(self.scan_time/(1024*4*ns))
         f0 = self.freq_center + self.freq_width/2
         if self.freq_width/2 > self.freq_center: raise Exception("Bad Range")
+
+        self.core.break_realtime()
         
         #continuous       
         f_step = self.freq_width / 1023        
         for i in range(1024):
             self.freq_list[i] = f0 - f_step*i
-            
-        ## discrete:
-        # f_step = self.freq_width / 15
-        # for i in range(1024):
-        #     self.freq_list[i] = f0 - int(i/16) * f_step
-            
+        # self.freq_list[-1]=self.freq_center
+        # self.freq_list[-2]=self.freq_center
             
         self.scan_dds.frequency_to_ram(self.freq_list, self.freq_list_ram)
 
@@ -141,13 +144,13 @@ class VRS_sideband_scan_exp(Scan1D, TimeScan, EnvExperiment):
 
         delay(1 * ms)
 
-
-
         self.scan_dds.set_cfr1(ram_enable=0)
         self.scan_dds.cpld.io_update.pulse_mu(8)
 
-        self.scan_dds.set_profile_ram(start=0, end=1024-1, step=(self.step_size | (2**6 - 1 ) << 16),
+        self.scan_dds.set_profile_ram(start=0, end=1024-3, step=(self.step_size | (2**6 - 1 ) << 16),
                                   profile=0, mode=ad9910.RAM_MODE_RAMPUP)
+        # self.scan_dds.set_profile_ram(start=1022, end=1023, step=(self.step_size | (2**6 - 1 ) << 16),
+        #                   profile=1, mode=ad9910.RAM_MODE_RAMPUP)
         self.scan_dds.cpld.set_profile(0)
 
         delay(100*us) # needs 2x delays here not to throw RTIOUnderflow Error?????
@@ -155,7 +158,17 @@ class VRS_sideband_scan_exp(Scan1D, TimeScan, EnvExperiment):
 
         self.scan_dds.cpld.io_update.pulse_mu(8)
         delay(100*us)
-        self.scan_dds.write_ram(self.freq_list_ram)
+        self.scan_dds.write_ram(self.freq_list_ram[0:1022])
+        
+        # self.scan_dds.cpld.set_profile(1)
+        # delay(100*us) # needs 2x delays here not to throw RTIOUnderflow Error?????
+        # delay(100*us)
+
+        # self.scan_dds.cpld.io_update.pulse_mu(8)
+        # delay(100*us)
+        # self.scan_dds.write_ram(self.freq_list_ram[-2:])
+    
+        
         # prepare to enable ram and set frequency as target
         delay(10 * us)
         self.scan_dds.set_cfr1(internal_profile=0, ram_enable=1, ram_destination=ad9910.RAM_DEST_FTW)
@@ -163,7 +176,7 @@ class VRS_sideband_scan_exp(Scan1D, TimeScan, EnvExperiment):
 
         self.core.wait_until_mu(now_mu())
 
-
+   
 
     @kernel 
     def before_scan(self):
@@ -173,18 +186,20 @@ class VRS_sideband_scan_exp(Scan1D, TimeScan, EnvExperiment):
         self.MOTs.init_coils()
         self.MOTs.init_ttls()
         self.MOTs.init_aoms(on=False)
-        self.Bragg.init_aoms(switches=0x9)
+        self.Bragg.init_aoms(on=True)
 
+        self.Bragg.AOMs_off(["Bragg1", "Bragg2"])
         self.MOTs.set_current_dir(0)
         delay(10*ms)
         self.MOTs.take_background_image_exp(self.Camera)
         delay(100*ms)
         self.MOTs.atom_source_on()
         delay(100*ms)
-        self.MOTs.AOMs_on(['3D', "3P0_repump", "3P2_repump"])
+        self.MOTs.AOMs_on_all()
         delay(200*ms)
 
-        self.MOTs.AOMs_off(['3D', "3P0_repump", "3P2_repump"])
+        self.MOTs.AOMs_off_all()
+        delay(100*ms)
         self.MOTs.atom_source_off()
         
         self.MOTs.set_current_dir(0)
@@ -200,9 +215,11 @@ class VRS_sideband_scan_exp(Scan1D, TimeScan, EnvExperiment):
         delay(1 * ms)
         self.load_scan()
         delay(1*ms)
-
+                
         # before this point is just for preparing the RAM and RIGOL
         self.core.break_realtime()
+
+
         delay(10*ms)
         self.Bragg.set_AOM_attens([("Bragg1", self.Bragg.atten_Bragg1)])
         #self.Bragg.set_AOM_attens([("Bragg1", point/(1*us))])
@@ -212,13 +229,12 @@ class VRS_sideband_scan_exp(Scan1D, TimeScan, EnvExperiment):
 
         delay(10 * ms)
         delay(100*ms)
-        self.MOTs.AOMs_off(self.MOTs.AOMs)
+        self.MOTs.AOMs_off_all()
         delay(50*ms)
         
         self.MOTs.set_current_dir(0)
 
         self.run_exp(point)
-        
         
         self.MOTs.take_MOT_image(self.Camera) # image after variable drop time
         delay(5*ms)
@@ -226,6 +242,7 @@ class VRS_sideband_scan_exp(Scan1D, TimeScan, EnvExperiment):
         
         self.scan_dds.set_cfr1(ram_enable=0)
         self.scan_dds.cpld.io_update.pulse_mu(8)
+        
         delay(5*ms)
         self.MOTs.Blackman_ramp(0.3, 0.0, 30*ms)
         self.MOTs.set_current_dir(0)
@@ -242,42 +259,46 @@ class VRS_sideband_scan_exp(Scan1D, TimeScan, EnvExperiment):
      
     
     @kernel
-    def run_exp(self, delay_time):
-
-
+    def run_exp(self, delay_time):        
         self.MOTs.rMOT_pulse_new(sf = False)
 
-               
+        self.MOTs.set_current_dir(1)
+        self.MOTs.Blackman_ramp(0.0, 0.3, 20*ms)
         
-        with parallel:
-            
+        with parallel:          
+            t_end = self.ttl0.gate_rising(10*ms)    #opens gate for rising edges to be detected on TTL0 for 10ms
+                                                    #sets variable t_end as time(in MUs) at which detection stops
             with sequential:
-                self.MOTs.set_current_dir(1)
-                # self.MOTs.set_current(0.3)
-                #delay(10*ms)
-                #self.MOTs.ttl7.on()
-                #delay(1*ms)
-                self.MOTs.Blackman_ramp(0.0, 0.3, 20*ms)
-                
-            delay(self.dipole_load_time)
-        
-        for _ in range(int(self.pulses)):
-            
-            self.Bragg.AOMs_on(["Bragg2"])
-            with parallel:
+                ##turn sitting AOM probe on
                 self.scan_dds.sw.on()
                 self.ttl5.on()
                 self.scan_dds.cpld.io_update.pulse_mu(8)
-            delay(self.scan_time)
-            with parallel:
+                    
+            t_edge = self.ttl0.timestamp_mu(t_end)  #sets variable t_edge as time(in MUs) at which first edge is detected
+                                                    #if no edge is detected, sets t_edge to -1
+
+        if t_edge > 0:                          #runs if an edge has been detected
+             at_mu(t_edge)                       #set time cursor to position of edge
+             delay(10*us)
+             self.scan_dds.sw.off()
+             self.ttl5.off()  
+             delay(5*ms)          
+             
+             with parallel:
+                self.scan_dds.sw.on()
+                self.ttl5.on()
+                self.scan_dds.cpld.io_update.pulse_mu(8)
+             delay(self.scan_time)
+             with parallel:
                 self.scan_dds.sw.off()
                 self.ttl5.off()            
-            delay(delay_time)
-            self.Bragg.AOMs_off(["Bragg2"])
+             delay(delay_time)
             
             
             
-        
+        delay(10*us)
+        self.ttl5.off()            
+        self.ttl0.count(t_end)                  #discard remaining edges and close gate
         
 
     
@@ -290,7 +311,3 @@ class VRS_sideband_scan_exp(Scan1D, TimeScan, EnvExperiment):
         delay(10*ms)
         self.MOTs.atom_source_on()
         
-    # @kernel    
-    # def log_time(self):
-    #     self.log[self.ind] = ((self.core.get_rtio_counter_mu()-self.t0_rtio)//10**6, (now_mu()-self.t0)//10**6)
-    #     self.ind += 1

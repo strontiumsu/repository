@@ -281,12 +281,12 @@ class ClockRabiVRS_exp(Scan1D, TimeFreqScan, EnvExperiment):
             self.State_Control.cav_clear_pulse(1000*us)
             delay(1000*us)
             
-            # Rabi flop from 3P0
-            with parallel:
-                self.State_Control.pulse_679(time)
-                self.State_Control.pulse_688(time)
-            delay(0.3*us)
-            self.State_Control.pulse_689(self.pi_time_689)
+            # # Rabi flop from 3P0
+            # with parallel:
+            #     self.State_Control.pulse_679(time)
+            #     self.State_Control.pulse_688(time)
+            # delay(0.3*us)
+            # self.State_Control.pulse_689(self.pi_time_689)
             
   
         else:    
@@ -300,7 +300,11 @@ class ClockRabiVRS_exp(Scan1D, TimeFreqScan, EnvExperiment):
         
             
             
+        self.MOTs.aom_3P0.sw.on()
+        self.MOTs.aom_3P2.sw.on()
         delay(200*us)
+        self.MOTs.aom_3P0.sw.off()
+        self.MOTs.aom_3P2.sw.off()
         #-----  Measure VRS with after excitation -----------------------
         self.Bragg.AOMs_on(["Bragg2"])
         with parallel:
@@ -320,7 +324,7 @@ class ClockRabiVRS_exp(Scan1D, TimeFreqScan, EnvExperiment):
         self.MOTs.aom_3P2.sw.off()
     
         
-        #self.State_Control.cav_clear_pulse(1000*us)
+        self.State_Control.cav_clear_pulse(1000*us)
         delay(1000*us)
         self.Bragg.AOMs_on(["Bragg2"])
         with parallel:
