@@ -71,13 +71,10 @@ class DipoleTrapFrequency_exp(Scan1D, TimeScan, EnvExperiment):
 
     @kernel
     def before_scan(self):
-        # runs before experiment take place
-
-        #initialize devices on host
         self.core.reset()
         self.MOTs.init_coils()
         self.MOTs.init_aoms(on=False)  # initializes whiling keeping them off
-        self.Bragg.init_aoms(on=True)
+        self.Bragg.init_aoms(switches=0x9)
 
         delay(10*ms)
 
@@ -85,9 +82,9 @@ class DipoleTrapFrequency_exp(Scan1D, TimeScan, EnvExperiment):
         delay(100*ms)
         self.MOTs.atom_source_on()
         delay(100*ms)
-        self.MOTs.AOMs_on(['3D', "3P0_repump", "3P2_repump"])
+        self.MOTs.AOMs_on_all()
         delay(200*ms)
-        self.MOTs.AOMs_off(['3D', "3P0_repump", "3P2_repump"])
+        self.MOTs.AOMs_off_all()
         self.MOTs.atom_source_off()
 
 
@@ -101,10 +98,13 @@ class DipoleTrapFrequency_exp(Scan1D, TimeScan, EnvExperiment):
         self.Camera.arm()
         delay(200*ms)
 
-        self.MOTs.AOMs_off(self.MOTs.AOMs)
+        self.MOTs.AOMs_off_all()
         delay(10*ms)
 
-        self.MOTs.rMOT_pulse()
+        self.MOTs.init_rmot_dds(self.MOTs.rmot_freq_i, self.MOTs.rmot_freq_f, self.MOTs.rmot_freq_depth_i, self.MOTs.rmot_freq_depth_f, self.MOTs.freq_3D_red)
+        delay(10 * ms)
+
+        self.MOTs.rMOT_pulse_new(sf=False)
         delay(self.load_time)
 
 
@@ -137,7 +137,7 @@ class DipoleTrapFrequency_exp(Scan1D, TimeScan, EnvExperiment):
         
 
         delay(10*ms)
-        self.MOTs.AOMs_on(self.MOTs.AOMs)
+        self.MOTs.AOMs_on_all()
         delay(1*ms)
         self.Bragg.AOMs_on(["Lattice"])
         self.Bragg.set_AOM_attens([("Dipole",self.Bragg.atten_Dipole)])

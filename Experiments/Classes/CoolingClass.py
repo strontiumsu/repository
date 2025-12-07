@@ -25,7 +25,6 @@ class _Cooling(EnvExperiment):
         self.setattr_device("core")
 
         ## TTLs
-        #self.setattr_device("ttl0") # shutter TTLs (2D and zeeman)
         self.setattr_device("ttl7") # MOT coil direction
         #self.setattr_device("ttl6") # for switching to single freq channel
         self.setattr_device("ttl1")
@@ -107,17 +106,19 @@ class _Cooling(EnvExperiment):
         
         self.setattr_argument("rmot_freq_i", NumberValue(180.5*1e6,min=0.1*1e6, max=200.0*1e6, scale=1e6, unit="MHz", ndecimals = 3), "Red MOT")     
         self.setattr_argument("rmot_freq_depth_i", NumberValue(6*1e6, min=0.0*1e6, max=10.0*1e6, scale=1e6, unit="MHz"), "Red MOT")
-        self.setattr_argument("rmot_freq_f", NumberValue(180.24*1e6,min=0.1*1e6, max=200.0*1e6, scale=1e6, unit="MHz", ndecimals = 3), "Red MOT")     
-        self.setattr_argument("rmot_freq_depth_f", NumberValue(1*1e6, min=0.0*1e6, max=10.0*1e6, scale=1e6, unit="MHz"), "Red MOT")
+        self.setattr_argument("rmot_freq_f", NumberValue(180.16*1e6,min=0.1*1e6, max=200.0*1e6, scale=1e6, unit="MHz", ndecimals = 3), "Red MOT")     
+        self.setattr_argument("rmot_freq_depth_f", NumberValue(1.1*1e6, min=0.0*1e6, max=10.0*1e6, scale=1e6, unit="MHz"), "Red MOT")
         self.setattr_argument("nprofiles",NumberValue(7,min=2,max=7),"Red MOT")
         
         
         self.setattr_argument("rmot_scan_frequency", NumberValue(30*1e3, min=10*1e3, max=100*1e3, scale=1e3, unit='kHz'),"Red MOT")
+        self.setattr_argument("molasses",BooleanValue(False),"Red MOT")
+        self.setattr_argument("molasses_frequency", NumberValue(179.25*1e6, min=10*1e6, max=200*1e6, scale=1e6, unit='MHz'),"Red MOT")
 
         ## Misc params
         self.setattr_argument("Push_pulse_time",NumberValue(0.7*1e-6,min=0.0*1e6,max=50000.00*1e-3,scale = 1e-6,
                       unit="us"),"Detection")
-        self.setattr_argument("Detection_pulse_time",NumberValue(0.1*1e-3,min=0.0,max=100.00*1e-3,scale = 1e-3,
+        self.setattr_argument("Detection_pulse_time",NumberValue(0.02*1e-3,min=0.0,max=100.00*1e-3,scale = 1e-3,
                       unit="ms"),"Detection")
         self.setattr_argument("Delay_duration", NumberValue(800*1e-6,min=0.0*1e-6,max=15000.00*1e-6,scale = 1e-6,
                       unit="us"),"Detection")
@@ -187,21 +188,6 @@ class _Cooling(EnvExperiment):
         self.ttl1.count(t_end) # clears cache
         delay(50*ms)
 
-
-    # turns AOMs on/off via RF switch
-    @kernel
-    def AOMs_on(self, AOMs):
-        self.aom_3D_blue.sw.on()
-        self.aom_3P0.sw.on()
-        self.aom_3P2.sw.on()
-        self.aom_3D_red.sw.on()
-
-    @kernel
-    def AOMs_off(self, AOMs):
-        self.aom_3D_blue.sw.off()
-        self.aom_3P0.sw.off()
-        self.aom_3P2.sw.off()
-        self.aom_3D_red.sw.off()
 
     @kernel 
     def AOMs_off_all(self):
@@ -289,6 +275,13 @@ class _Cooling(EnvExperiment):
             raise Exception("Current too high!")
         else:
             self.dac_set(0, cur)
+            
+    @kernel 
+    def open_688(self):
+        self.dac_set(3, 4.0)
+    @kernel 
+    def close_688(self):
+        self.dac_set(3, 0.0)
 
     # switches between MOT configs
     @kernel
@@ -465,24 +458,36 @@ class _Cooling(EnvExperiment):
     @kernel
     def bMOT_pulse(self):
         self.atom_source_on()
-        self.AOMs_on(["3D", "3P0_repump", "3P2_repump"])
+        # turn on 3D, and repumps
+        self.aom_3D_blue.sw.on()
+        self.aom_3P0.sw.on()
+        self.aom_3P2.sw.on()
+        
         self.Blackman_ramp_up()
         self.hold(self.bmot_load_duration)
         self.Blackman_ramp_down()
-        self.AOMs_off(["3D", "3P0_repump", "3P2_repump"])
+        
+        # turn on 3D, and repumps
+        self.aom_3D_blue.sw.off()
+        self.aom_3P0.sw.off()
+        self.aom_3P2.sw.off()
         self.atom_source_off()
 
     @kernel
     def bMOT_load(self):
         self.atom_source_on()
-        self.AOMs_on(["3D", "3P0_repump", "3P2_repump"])
+        # turn on 3D, and repumps
+        self.aom_3D_blue.sw.on()
+        self.aom_3P0.sw.on()
+        self.aom_3P2.sw.on()
+        
         self.set_current_dir(0)
         self.Blackman_ramp_up()
         self.hold(self.bmot_load_duration)
 
 
     @kernel 
-    def rMOT_pulse_new(self, sf=False, atten_scale_factor=2.2):
+    def rMOT_pulse_new(self, sf=False, atten_scale_factor=2.67):
         self.atom_source_on() # opens on zeeman and 2D shutters
         self.aom_3D_blue.set_att(self.atten_3D)
         self.aom_3D_red.set_att(self.atten_3D_red)
@@ -514,7 +519,7 @@ class _Cooling(EnvExperiment):
         self.aom_3D_red.sw.on()
         
         # ramp up blue MOT current and attenuation
-        tramp = 25*ms
+        tramp = 50*ms
         binc = 1.0
 
         dt = tramp/int(self.Npoints)
@@ -528,9 +533,9 @@ class _Cooling(EnvExperiment):
         self.aom_3D_blue.sw.off()
         delay(0.5*us)
         
-        # ramp up to broad band red mot current and hold
-        self.Blackman_ramp(self.bmot_current + binc, self.rmot_bb_current, 20*ms)
-        # self.set_current(self.rmot_bb_current)
+        # ramp up to broad band red mot current and hold`
+        self.Blackman_ramp(self.bmot_current + binc, self.rmot_bb_current, 15*ms)
+        #self.set_current(self.rmot_bb_current)
         delay(self.rmot_bb_duration)
         
         # turn off repumpers
@@ -555,20 +560,12 @@ class _Cooling(EnvExperiment):
 
             sf_atten=21
             self.aom_3D_red.set_att(self.atten_3D_red+sf_atten)
-
-            #self.aom_3D_red.set_att(self.atten_3D_red+16)
             delay(self.rmot_sf_duration)
         self.aom_3D_red.sw.off()
 
         self.urukul1_cpld.set_profile(0)
+        self.Blackman_ramp(self.rmot_sf_current, 0.0, 5*ms)
         
-        # ramp current down
-        # if sf:
-        #     self.Blackman_ramp(self.rmot_sf_current, 0.0, 10*ms)
-        # else:
-        # self.set_current(0.0)
-            
-        self.Blackman_ramp(self.rmot_sf_current, 0.0, 20*ms)
 
         
     @kernel 
@@ -604,7 +601,7 @@ class _Cooling(EnvExperiment):
         self.aom_3D_red.sw.on()
         
         # ramp up blue MOT current and attenuation
-        tramp = 25*ms
+        tramp = 50*ms
         binc = 1.0
 
         dt = tramp/int(self.Npoints)
@@ -619,15 +616,15 @@ class _Cooling(EnvExperiment):
         delay(0.5*us)
         
         # ramp up to broad band red mot current and hold
-        #self.Blackman_ramp(self.bmot_current + binc, self.rmot_bb_current, 20*ms)
-        self.set_current(self.rmot_bb_current)
+        self.Blackman_ramp(self.bmot_current + binc, self.rmot_bb_current, 40*ms)
+        #self.set_current(self.rmot_bb_current)
         delay(self.rmot_bb_duration)
         
         # turn off repumpers
         self.aom_3P0.sw.off()
         self.aom_3P2.sw.off()
         
-        atten_scale_factor = 2.2
+        #atten_scale_factor = 2.2
         
         #self.linear_ramp(self.rmot_bb_current, self.rmot_sf_current, self.rmot_ramp_duration, self.Npoints)
         with parallel:
@@ -640,12 +637,11 @@ class _Cooling(EnvExperiment):
 
         # switch to single frequency mode then hold        
         if sf:
-            self.aom_3D_red.cpld.set_profile(6)
-            #self.aom_3D_red.set_amplitude(0.05)
-            #self.aom_3D_red.set_att(self.atten_3D_red+sf_atten)
-            self.aom_3D_red.set_att(self.atten_3D_red+atten_scale_factor*6)
-            
+            self.aom_3D_red.cpld.set_profile(7)
+            self.aom_3D_red.set_amplitude(0.05)
 
+            sf_atten=21
+            self.aom_3D_red.set_att(self.atten_3D_red+sf_atten)
 
             #self.aom_3D_red.set_att(self.atten_3D_red+16)
             delay(self.rmot_sf_duration)
@@ -657,10 +653,19 @@ class _Cooling(EnvExperiment):
         # if sf:
         #     self.Blackman_ramp(self.rmot_sf_current, 0.0, 10*ms)
         # else:
-        self.set_current(0.0)
+        #    self.set_current(0.0)
             
-        #self.Blackman_ramp(self.rmot_sf_current, 0.0, 10*ms)
+        self.Blackman_ramp(self.rmot_sf_current, 0.0, 20*ms)
         
+        
+    @kernel 
+    def molasses_pulse(self, freq=179*MHz, amp = 0.1, t = 40*ms):
+        self.aom_3D_red.set_cfr1(ram_enable=0)
+        self.aom_3D_red.cpld.io_update.pulse_mu(8)
+        self.aom_3D_red.set(frequency=freq, amplitude=amp) # change rMOT beams to be constant frequency
+        self.aom_3D_red.sw.on()
+        delay(t)
+        self.aom_3D_red.sw.off()
         
     @kernel
     def rMOT_pulse(self, sf = True, real=True):
@@ -761,10 +766,16 @@ class _Cooling(EnvExperiment):
     @kernel
     def take_background_image_exp(self, cam):
         cam.arm()
+        self.core.break_realtime()
+        
         delay(150*ms)
         self.take_MOT_image(cam)
-        delay(150*ms)
+        delay(10*ms)
+        
+        
+        self.core.wait_until_mu(now_mu())
         cam.process_background()
+        self.core.break_realtime()
 
     @kernel
     def take_image_exp(self, cam):
@@ -775,11 +786,9 @@ class _Cooling(EnvExperiment):
     def take_MOT_image(self, cam):
         #self.atom_source_off()
         self.AOMs_off_all()
-        #self.set_AOM_freqs([('3D', self.f_MOT3D_detect)])
         self.aom_3D_blue.set(frequency=self.f_MOT3D_detect,amplitude=0.8)
         self.aom_3D_blue.set_att(6.0)
-        #self.set_AOM_attens([('3D', 6.0)])
-        delay(1*ms)
+        
         with parallel:
             cam.trigger_camera()
             with sequential:
@@ -789,10 +798,9 @@ class _Cooling(EnvExperiment):
                 delay(self.Detection_pulse_time)
                 self.aom_3D_blue.sw.off()
             delay(cam.Exposure_Time)
-        #self.set_AOM_freqs([('3D', self.freq_3D)])
+        
         self.aom_3D_blue.set(frequency=self.freq_3D,amplitude=0.8)
         self.aom_3D_blue.set_att(self.atten_3D)
-        #self.set_AOM_attens([('3D', self.atten_3D)])
         self.aom_3P0.sw.off()
         self.aom_3P2.sw.off()
 
@@ -806,6 +814,7 @@ class _Cooling(EnvExperiment):
 
     
     def index_artiq(self, aom) -> TInt32:
+        raise Exception("Get rid of AOM indexing functions")
         for i in range(len(self.AOMs)):
             if self.AOMs[i] == aom:
                 return i

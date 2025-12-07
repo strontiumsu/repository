@@ -13,11 +13,11 @@ from artiq.coredevice import ad9910
 
 from CoolingClass import _Cooling
 from BraggClass import _Bragg
-# from repository.models.scan_models import LinearModel
-# 
-from time import sleep
 
-class cavity_calib_exp(Scan1D, EnvExperiment):
+
+import time
+
+class CavityAlignment_exp(Scan1D, EnvExperiment):
 
     def build(self, **kwargs):
         
@@ -146,9 +146,8 @@ class cavity_calib_exp(Scan1D, EnvExperiment):
         self.MOTs.init_coils()
         self.MOTs.init_ttls()
         self.MOTs.init_aoms(on=False)
-        self.Bragg.init_aoms(on=True)
-
-        self.Bragg.AOMs_off(["Bragg1", "Bragg2"])
+        self.Bragg.init_aoms()
+        
         self.MOTs.set_current_dir(0)
         delay(10*ms)
 
@@ -171,18 +170,17 @@ class cavity_calib_exp(Scan1D, EnvExperiment):
         self.load_scan(self.scan_dds)
         delay(50*ms)
 
-        self.Bragg.set_AOM_attens([("Bragg1", self.Bragg.atten_Bragg1)])
         delay(1 * ms)
         self.MOTs.set_AOM_attens([("3D", self.MOTs.atten_3D)])
         delay(10 * ms)
     
-        self.MOTs.AOMs_off(self.MOTs.AOMs) # ensure AOMs are off
+        self.MOTs.AOMs_off_all() # ensure AOMs are off
         delay(10*ms)
 
         self.run_exp(point[0]%2==1)
 
         self.MOTs.set_current_dir(0)
-        self.MOTs.AOMs_off(self.MOTs.AOMs)
+        self.MOTs.AOMs_off_all() # ensure AOMs are off
         delay(50*ms)
         self.core.wait_until_mu(now_mu())
         return 0
@@ -191,17 +189,19 @@ class cavity_calib_exp(Scan1D, EnvExperiment):
     @kernel
     def run_exp(self, atoms_on):
 
-        self.MOTs.rMOT_pulse(real=atoms_on)
-        
-        
+        # if atoms_on:
+        #     self.MOTs.rMOT_pulse_new(sf = False)
+        # else:
+        #     delay(1*s)
+        self.MOTs.rMOT_pulse_new(sf = False)
+
         with parallel:
+            
             with sequential:
-                delay(10*ms)
-                self.MOTs.ttl7.on()
-                delay(1*ms)
+                self.MOTs.set_current_dir(1)
                 self.MOTs.Blackman_ramp(0.0, 0.3, 20*ms)
-        
-            delay(50*ms) # dipole load time
+                
+            delay(80*ms)
         
         self.Bragg.AOMs_on(["Bragg2"]) # turn on probe light
         with parallel:
@@ -221,4 +221,4 @@ class cavity_calib_exp(Scan1D, EnvExperiment):
             print(point[1])
 
 
-        sleep(1)
+        time.sleep(1)

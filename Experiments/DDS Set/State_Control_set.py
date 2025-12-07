@@ -7,15 +7,16 @@ Created on Fri Jan 17 13:51:02 2025
 
 
 from artiq.experiment import EnvExperiment, kernel, BooleanValue, us
-from StateControlClass import _STATE_CONTROL
+from StateControlClass import _state_control
 
 class State_Control_set(EnvExperiment):
 
 
     def build(self):
         self.setattr_device("core")
-        self.StateControl=_STATE_CONTROL(self)
+        self.StateControl=_state_control(self)
         self.setattr_device("ttl5")
+        self.setattr_device("ttl6")
         
         self.setattr_argument("ch_689",BooleanValue(False),"Params")
         self.setattr_argument("ch_Push",BooleanValue(False),"Params")
@@ -30,10 +31,13 @@ class State_Control_set(EnvExperiment):
     def run(self):
         self.core.reset()
         self.StateControl.init_aoms(on=False)
-        if self.ch_689: self.StateControl.AOMs_on(["689"])
-        if self.ch_Push: self.StateControl.AOMs_on(["Push"])
-        if self.ch_688: self.StateControl.AOMs_on(["688"])
-        if self.ch_679: self.StateControl.AOMs_on(["679"])
+        
+        if self.ch_688: self.StateControl.urukul_channels[0].sw.on()
+        if self.ch_Push: 
+            self.ttl6.on()
+            self.StateControl.urukul_channels[1].sw.on()
+        if self.ch_679: self.StateControl.urukul_channels[2].sw.on()
+        if self.ch_689: self.StateControl.urukul_channels[3].sw.on()
         
         self.ttl5.pulse(100*us)
         

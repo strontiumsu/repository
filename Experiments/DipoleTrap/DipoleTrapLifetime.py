@@ -71,7 +71,7 @@ class DipoleTrapLifetime_exp(Scan1D, TimeScan, EnvExperiment):
         self.core.reset()
         self.MOTs.init_coils()
         self.MOTs.init_aoms(on=False)  # initializes whiling keeping them off
-        self.Bragg.init_aoms(on=True)
+        self.Bragg.init_aoms()
 
         delay(10*ms)
 
@@ -79,9 +79,9 @@ class DipoleTrapLifetime_exp(Scan1D, TimeScan, EnvExperiment):
         delay(100*ms)
         self.MOTs.atom_source_on()
         delay(100*ms)
-        self.MOTs.AOMs_on(['3D', "3P0_repump", "3P2_repump"])
+        self.MOTs.AOMs_on_all()
         delay(200*ms)
-        self.MOTs.AOMs_off(['3D', "3P0_repump", "3P2_repump"])
+        self.MOTs.AOMs_off_all()
         self.MOTs.atom_source_off()
         
         
@@ -106,15 +106,22 @@ class DipoleTrapLifetime_exp(Scan1D, TimeScan, EnvExperiment):
         delay(10*ms)
 
         #self.MOTs.rMOT_pulse()
-        self.MOTs.rMOT_pulse_new(sf=False)
-        delay(self.load_time)
+        self.MOTs.close_688() # close 688 shutter to prevent leakage from optical pumping
 
+        self.MOTs.rMOT_pulse_new(sf=False)
+        if self.MOTs.molasses:
+            with parallel:
+                delay(self.load_time)
+                self.MOTs.set_current_dir(1) 
+                self.MOTs.molasses_pulse(freq=self.MOTs.molasses_frequency, amp=0.1, t = self.load_time)
+        else:
+            delay(self.load_time)
 
         delay(t_delay)  # drop time
         self.MOTs.take_MOT_image(self.Camera) # image after variable drop time
 
         delay(10*ms)
-        self.MOTs.AOMs_on(self.MOTs.AOMs)
+        self.MOTs.AOMs_on_all()
 
         delay(50*ms)
         self.Camera.process_image(bg_sub=True)

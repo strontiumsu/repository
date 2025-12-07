@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+#-*- coding: utf-8 -*-
 """
 Created on Wed Aug  2 10:59:20 2023
 
@@ -23,7 +23,7 @@ class DipoleTrapTemperature_exp(Scan1D, TimeScan, EnvExperiment):
         # required initializations
 
         super().build(**kwargs)
-
+        self.setattr_device("ttl5")
         self.enable_pausing = True
         self.enable_auto_tracking = False
         self.enable_profiling = False
@@ -76,7 +76,7 @@ class DipoleTrapTemperature_exp(Scan1D, TimeScan, EnvExperiment):
         self.core.reset()
         self.MOTs.init_coils()
         self.MOTs.init_aoms(on=False)  # initializes whiling keeping them off
-        self.Bragg.init_aoms(on=True)
+        self.Bragg.init_aoms(switches=0x9)
 
         delay(10*ms)
 
@@ -84,9 +84,9 @@ class DipoleTrapTemperature_exp(Scan1D, TimeScan, EnvExperiment):
         delay(100*ms)
         self.MOTs.atom_source_on()
         delay(100*ms)
-        self.MOTs.AOMs_on(['3D', "3P0_repump", "3P2_repump"])
+        self.MOTs.AOMs_on_all()
         delay(200*ms)
-        self.MOTs.AOMs_off(['3D', "3P0_repump", "3P2_repump"])
+        self.MOTs.AOMs_off_all()
         self.MOTs.atom_source_off()
 
 
@@ -100,18 +100,26 @@ class DipoleTrapTemperature_exp(Scan1D, TimeScan, EnvExperiment):
         self.Camera.arm()
         delay(200*ms)
 
-        self.MOTs.AOMs_off(self.MOTs.AOMs)
+        self.MOTs.AOMs_off_all()
         delay(10*ms)
 
         self.MOTs.init_rmot_dds(self.MOTs.rmot_freq_i, self.MOTs.rmot_freq_f, self.MOTs.rmot_freq_depth_i, self.MOTs.rmot_freq_depth_f, self.MOTs.freq_3D_red)
         delay(10 * ms)
+        self.MOTs.close_688() # close 688 shutter to prevent leakage from optical pumping
+        self.MOTs.rMOT_pulse_new(sf=False)
+        
+        if self.MOTs.molasses:
+            with parallel:
+                delay(self.load_time)
+                self.MOTs.set_current_dir(1) 
+                self.MOTs.molasses_pulse(freq=self.MOTs.molasses_frequency, amp=0.1, t = self.load_time)
+        else:
+            delay(self.load_time)
 
-        self.MOTs.rMOT_pulse_new(sf=False, atten_scale_factor=2.67)
-        delay(self.load_time)
+        
+        ##################
 
-        delay(10 * ms)
-
-        self.Bragg.set_AOM_attens([("Dipole",27.0 )])
+        self.Bragg.set_AOM_attens([("Dipole",30.0 )])
         self.Bragg.AOMs_off(["Lattice"])
 
 
@@ -123,11 +131,12 @@ class DipoleTrapTemperature_exp(Scan1D, TimeScan, EnvExperiment):
         
 
         delay(10*ms)
-        self.MOTs.AOMs_on(self.MOTs.AOMs)
-
+        self.MOTs.AOMs_on_all()
+        self.ttl5.off()
         delay(50*ms)
         self.Camera.process_image(bg_sub=True)
         delay(400*ms)
+        
         #return self.Camera.get_totalcount_stats_port2()
         # if self.plot_direction == 'X':
         #     return self.Camera.process_gaussian(3)
@@ -136,39 +145,39 @@ class DipoleTrapTemperature_exp(Scan1D, TimeScan, EnvExperiment):
         return 0
             
     def after_scan(self):
+        pass
         
-        
-        data = np.array(self.Camera.get_dataset('gaussianparams'))
-        A, center_y, center_x, sigma_y_2, sigma_x_2, offset = data[:,0], data[:,1], data[:,2], data[:,3],data[:,4], data[:,5]
-        t=self.get_scan_points()
+        # data = np.array(self.Camera.get_dataset('gaussianparams'))
+        # A, center_y, center_x, sigma_y_2, sigma_x_2, offset = data[:,0], data[:,1], data[:,2], data[:,3],data[:,4], data[:,5]
+        # t=self.get_scan_points()
 
         
-        popt, _ = curve_fit(self.quadratic,list(t),center_y,maxfev=20000);
+        # popt, _ = curve_fit(self.quadratic,list(t),center_y,maxfev=20000);
 
 
-        ###g/2 = a pixels/ms^2 = 9.8m/s^2 =
-        pix2um = 9.81e6/(popt[0]*2)
+        # ###g/2 = a pixels/ms^2 = 9.8m/s^2 =
+        # pix2um = 9.81e6/(popt[0]*2)
 
         
-        sigma_y_2*=pix2um**2
-        sigma_x_2*=pix2um**2
+        # sigma_y_2*=pix2um**2
+        # sigma_x_2*=pix2um**2
         
         
      
-        popt_temp_x, _ = curve_fit(self.quadratic,list(t),sigma_x_2,maxfev=20000);     
-        popt_temp_y, _ = curve_fit(self.quadratic,list(t),sigma_y_2,maxfev=20000);
+        # popt_temp_x, _ = curve_fit(self.quadratic,list(t),sigma_x_2,maxfev=20000);     
+        # popt_temp_y, _ = curve_fit(self.quadratic,list(t),sigma_y_2,maxfev=20000);
         
-        print(popt_temp_x)
+        # print(popt_temp_x)
 
 
-        M  = constants.value('atomic mass constant')*87.9
-        Kb = constants.value('Boltzmann constant')
-        tempX = popt_temp_x[0]*1e-12*M/Kb * 1e6
-        tempY = popt_temp_y[0]*1e-12*M/Kb * 1e6
+        # M  = constants.value('atomic mass constant')*87.9
+        # Kb = constants.value('Boltzmann constant')
+        # tempX = popt_temp_x[0]*1e-12*M/Kb * 1e6
+        # tempY = popt_temp_y[0]*1e-12*M/Kb * 1e6
         
-        self.set_dataset("TOF.TempX", tempX, broadcast=True)
-        self.set_dataset("TOF.TempY", tempY, broadcast=True)
-        self.set_dataset("TOF.pix2um", pix2um, broadcast=True)
+        # self.set_dataset("TOF.TempX", tempX, broadcast=True)
+        # self.set_dataset("TOF.TempY", tempY, broadcast=True)
+        # self.set_dataset("TOF.pix2um", pix2um, broadcast=True)
 
         
     def quadratic(self, x,a,b,c):

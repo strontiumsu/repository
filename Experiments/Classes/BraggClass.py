@@ -37,6 +37,11 @@ class _Bragg(EnvExperiment):
                                 self.get_device("urukul2_ch1"), 
                                 self.get_device("urukul2_ch2"),
                                 self.get_device("urukul2_ch3")]
+        
+        self.aom_dipole = self.urukul_channels[0]
+        self.aom_bragg1 = self.urukul_channels[1]
+        self.aom_bragg2 = self.urukul_channels[2]
+        self.aom_lattice = self.urukul_channels[3]
 
         # setting attributes to controll all AOMs
         for i in range(len(self.AOMs)):
@@ -52,7 +57,7 @@ class _Bragg(EnvExperiment):
         self.freqs = [self.freq_Dipole, self.freq_Bragg1, self.freq_Bragg2, self.freq_Lattice]
 
     @kernel
-    def init_aoms(self, switches):
+    def init_aoms(self, switches=0x9):
         delay(1*ms)     
         self.urukul2_cpld.init()
         
@@ -124,6 +129,17 @@ class _Bragg(EnvExperiment):
                 self.attens[ind] = atten
                 self.urukul_channels[ind].set_att(atten)
 
+    @kernel
+    def set_probe_atten(self, atten):
+        self.urukul_channels[1].set_att(atten)
+        
+    @kernel
+    def set_probe_freq(self, freq, scale = 0.8):
+        ch = self.urukul_channels[1]
+        set_freq = ch.frequency_to_ftw(freq)
+        set_asf = ch.amplitude_to_asf(scale)
+        ch.set_mu(set_freq, asf=set_asf)
+        
 
     @kernel
     def set_AOM_scales(self, scale_list):

@@ -58,8 +58,7 @@ class Red_MOT_pulse_exp(EnvExperiment):
         self.MOTs.init_ttls()
         self.MOTs.init_aoms(on=False)
         delay(10*ms)
-        self.MOTs.init_rmot_dds(self.MOTs.rmot_freq_i, self.MOTs.rmot_freq_f, self.MOTs.rmot_freq_depth_i,self.MOTs.rmot_freq_depth_f, self.MOTs.freq_3D_red)
-        delay(100*ms)
+        
 
         self.MOTs.take_background_image_exp(self.Camera)
         delay(100*ms)
@@ -74,11 +73,17 @@ class Red_MOT_pulse_exp(EnvExperiment):
         for i in range(int(self.pulses)):
             delay(10*ms)
             self.Camera.arm()
-            delay(500*ms)  
+            delay(500*ms) 
+            
+            self.MOTs.init_rmot_dds(self.MOTs.rmot_freq_i, self.MOTs.rmot_freq_f, self.MOTs.rmot_freq_depth_i,self.MOTs.rmot_freq_depth_f, self.MOTs.freq_3D_red)
+            delay(100*ms)
             
             # edit variables for scanning here
             #self.MOTs.rMOT_pulse(sf=False)
-            self.MOTs.rMOT_pulse_new(sf=not self.broadband, atten_scale_factor=2.67)
+            # generate red mot
+            self.MOTs.close_688() # close 688 shutter to prevent leakage from optical pumping
+            self.MOTs.rMOT_pulse_new()
+            self.MOTs.open_688() # open shutter after 689 rMOT light turns off to be prepare for Raman pulse
             delay(self.wait_time)
             self.MOTs.take_MOT_image(self.Camera)
             delay(10*ms)
@@ -86,7 +91,10 @@ class Red_MOT_pulse_exp(EnvExperiment):
             delay(300*ms)
             self.core.wait_until_mu(now_mu())
             delay(200*ms)
-            self.MOTs.AOMs_off(['3P0_repump', '3P2_repump', '3D'])
+            # turn on 3D, and repumps
+            self.MOTs.aom_3D_blue.sw.off()
+            self.MOTs.aom_3P0.sw.off()
+            self.MOTs.aom_3P2.sw.off()
             delay(self.wait_time)
             
     @kernel

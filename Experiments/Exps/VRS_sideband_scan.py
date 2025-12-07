@@ -247,23 +247,15 @@ class VRS_sideband_scan_exp(Scan1D, TimeScan, EnvExperiment):
 
         self.MOTs.rMOT_pulse_new(sf = False)
 
-               
-        
         with parallel:
-            
             with sequential:
                 self.MOTs.set_current_dir(1)
-                # self.MOTs.set_current(0.3)
-                #delay(10*ms)
-                #self.MOTs.ttl7.on()
-                #delay(1*ms)
                 self.MOTs.Blackman_ramp(0.0, 0.3, 20*ms)
                 
             delay(self.dipole_load_time)
         
         for _ in range(int(self.pulses)):
             
-            self.Bragg.AOMs_on(["Bragg2"])
             with parallel:
                 self.scan_dds.sw.on()
                 self.ttl5.on()
@@ -273,12 +265,41 @@ class VRS_sideband_scan_exp(Scan1D, TimeScan, EnvExperiment):
                 self.scan_dds.sw.off()
                 self.ttl5.off()            
             delay(delay_time)
-            self.Bragg.AOMs_off(["Bragg2"])
-            
-            
-            
         
+        self.probe_mode(mode=0)
+        self.Bragg.set_probe_freq(self.freq_center)
+        #self.Bragg.set_probe_atten(12.0)
         
+        with parallel:
+            self.scan_dds.sw.on()
+            self.ttl5.on()
+            self.scan_dds.cpld.io_update.pulse_mu(8)
+        delay(self.scan_time)
+        with parallel:
+            self.scan_dds.sw.off()
+            self.ttl5.off() 
+            
+        delay(delay_time)  
+        
+        self.probe_mode(mode=1)
+        #self.Bragg.set_probe_freq(self.freq_center)
+        #self.Bragg.set_probe_atten(12.0)
+
+        with parallel:
+            self.scan_dds.sw.on()
+            self.ttl5.on()
+            self.scan_dds.cpld.io_update.pulse_mu(8)
+        delay(self.scan_time)
+        with parallel:
+            self.scan_dds.sw.off()
+            self.ttl5.off()            
+        delay(delay_time)  
+        
+        self.probe_mode(mode=1)
+        
+        delay(10*ms)
+        
+            
 
     
     @kernel
@@ -290,6 +311,15 @@ class VRS_sideband_scan_exp(Scan1D, TimeScan, EnvExperiment):
         delay(10*ms)
         self.MOTs.atom_source_on()
         
+    @kernel
+    def probe_mode(self, mode=0):
+        if mode ==0:
+            self.scan_dds.set_cfr1(ram_enable=0)
+            self.scan_dds.cpld.io_update.pulse_mu(8)
+            
+        else:
+            self.scan_dds.set_cfr1(internal_profile=0, ram_enable=1, ram_destination=ad9910.RAM_DEST_FTW)
+      
     # @kernel    
     # def log_time(self):
     #     self.log[self.ind] = ((self.core.get_rtio_counter_mu()-self.t0_rtio)//10**6, (now_mu()-self.t0)//10**6)

@@ -5,6 +5,8 @@ Created on Mon Nov  4 11:01:45 2024
 @author: ejporter
 """
 
+
+#imports
 from artiq.experiment import *
 from scan_framework import Scan1D
 import numpy as np

@@ -24,23 +24,17 @@ class Red_MOT_pulse_2Dscan_exp(Scan2D, EnvExperiment):
         self.setattr_device("scheduler")
         self.MOTs = _Cooling(self)
         self.Camera = _Camera(self)
+        
+        self.setattr_device("ttl5") # triggering pulse
 
 
         # attributes for this experiment
-        self.setattr_argument("pulses", NumberValue(5,min=0, max=100), "parameters")
-        self.setattr_argument("wait_time", NumberValue(1000.0*1e-3,min=0.0*1e-3,max=9000.00*1e-3,scale=1e-3,
+        self.setattr_argument("dipole_load_time", NumberValue(40.0*1e-3,min=0.0*1e-3,max=1000.00*1e-3,scale=1e-3,
                       unit="ms"),"parameters")
-        self.setattr_argument("broadband",BooleanValue(False),"parameters")
-
-        # self.setattr_argument("detuning_i", NumberValue(-1.5*1e6,min=0.1*1e6, max=200.0*1e6, scale=1e6, unit="MHz", ndecimals = 3), "parameters")
-        # self.setattr_argument("detuning_f", NumberValue(-0.5*1e6,min=0.1*1e6, max=200.0*1e6, scale=1e6, unit="MHz", ndecimals = 3), "parameters")
-        # self.setattr_argument("deviation_i", NumberValue(5*1e6,min=0.1*1e6, max=200.0*1e6, scale=1e6, unit="MHz", ndecimals = 3), "parameters")
-        # self.setattr_argument("deviation_f", NumberValue(1*1e6,min=0.1*1e6, max=200.0*1e6, scale=1e6, unit="MHz", ndecimals = 3), "parameters")
-
-        # self.setattr_argument("n_profiles",NumberValue(7,min=2,max=8),"parameters")
+        self.setattr_argument("mol_Bfield", NumberValue(0.37,min=0.0, max=5.0), "parameters")
 
 
-        self.setattr_argument('rmot_freq_i_scanvar', Scannable(
+        self.setattr_argument('mol_freq_scanvar', Scannable(
                 default=RangeScan(
                     start=178 * MHz,
                     stop=180.6 * MHz,
@@ -50,103 +44,105 @@ class Red_MOT_pulse_2Dscan_exp(Scan2D, EnvExperiment):
                 scale=1 * MHz,
                 ndecimals=4
             ), group='Scan Range')
-        self.setattr_argument('rmot_freq_depth_i_scanvar', Scannable(
+        self.setattr_argument('mol_pow_scanvar', Scannable(
                 default=RangeScan(
-                    start = 8 * MHz,
-                    stop = 2 * MHz,
-                    npoints=50
+                    start = 0.1,
+                    stop = 0.8,
+                    npoints=20
                 ),
-                unit='MHz',
-                scale=1 * MHz,
+                scale=1,
                 ndecimals=4
             ), group='Scan Range')
+        
+        self.mol_freq = 180*MHz
+        self.mol_pow = 0.8
 
         # scan arguments
         self.scan_arguments()
     
     
     def get_scan_points(self):
-        return [self.rmot_freq_i_scanvar, self.rmot_freq_depth_i_scanvar]
+        return [self.mol_freq_scanvar, self.mol_pow_scanvar]
     
     @kernel
     def set_scan_point(self, i_point, point):
-        rmot_freqi = point[0]
-        rmot_freq_depthi = point[1]
+        self.mol_freq = point[0]
+        self.mol_pow = point[1]
                            
         self.core.break_realtime()
-        if i_point[1] == 0:
-            self.rmot_freq = rmot_freqi
-            delay(3*us)
-            
-        self.rmot_freq_depth = rmot_freq_depthi
-        delay(3*us)
     
     def prepare(self):
         # initial datasets for the aoms and mot coils, does not run on core
         self.MOTs.prepare_aoms()
-        self.MOTs.prepare_rmot_dds() # with arguments
         self.MOTs.prepare_coils()
 
         # Initialize camera
         self.Camera.camera_init()
-
+         
     @kernel 
-    def init_exp(self):
+    def before_scan(self):
         self.core.reset()
         delay(10*ms)
         self.MOTs.init_coils()
-        self.MOTs.init_ttls()
         self.MOTs.init_aoms(on=False)
+        self.MOTs.init_ttls()
         delay(100*ms)
 
         self.MOTs.take_background_image_exp(self.Camera)
-        delay(500*ms)
+        self.core.break_realtime()
+        delay(5*ms)
+        self.MOTs.set_current_dir(0)
+        delay(10*ms)
+        
         
         self.core.wait_until_mu(now_mu())
         
     @kernel
-    def setup_scans(self):
-         self.core.reset()
-         delay(10*ms)
-         self.MOTs.init_scans() #can include nprofiles arg
-         self.core.wait_until_mu(now_mu())
-         
-         
-        
-    @kernel
-    def run_exp(self):
+    def run_exp(self, freq = 180*MHz, amp = 0.8):
         self.core.reset()
         delay(10*ms)
-        for _ in range(int(self.pulses)):
-            delay(10*ms)
-            self.Camera.arm()
-            delay(500*ms)            
-            self.MOTs.rMOT_pulse_new(sf=not self.broadband)
-            delay(self.wait_time)
-            self.MOTs.take_MOT_image(self.Camera)
-            delay(10*ms)
-            self.Camera.process_image(bg_sub=True)
-            delay(300*ms)
-            self.core.wait_until_mu(now_mu())
-            delay(200*ms)
-            self.MOTs.AOMs_off(['3P0_repump', '3P2_repump', '3D'])
-            delay(self.wait_time)
-            
-    @kernel
-    def cleanup(self):
-        self.core.reset()
-        delay(50*ms)
-        for i in range(3):
-            self.MOTs.urukul_channels[i].sw.on()
-        self.MOTs.atom_source_on()
         
-         
-    def run(self):
-        # initial devices
-        self.init_exp()
-        self.setup_scans()
-        self.run_exp()
-        self.cleanup()
+        
+        self.Camera.arm()
+        delay(500*ms)  
+
+        self.MOTs.init_rmot_dds(self.MOTs.rmot_freq_i, self.MOTs.rmot_freq_f,  self.MOTs.rmot_freq_depth_i, self.MOTs.rmot_freq_depth_f, self.MOTs.freq_3D_red)
+        delay(1*ms)
+
+          
+        self.MOTs.rMOT_pulse_new(sf=False)
+        
+        with parallel:
+            delay(self.dipole_load_time)
+            self.MOTs.set_current_dir(1) 
+            self.MOTs.molasses_pulse(freq, amp, self.dipole_load_time)
+            # with sequential:
+            #     ### MOLASSES ##
+                
+            #     self.MOTs.aom_3D_red.set_cfr1(ram_enable=0)
+            #     self.MOTs.aom_3D_red.cpld.io_update.pulse_mu(8)
+            #     self.MOTs.aom_3D_red.set(frequency=freq, amplitude=amp) # change rMOT beams to be constant frequency
+            #     self.MOTs.aom_3D_red.sw.on()
+            #     self.ttl5.on()
+            #     delay(self.dipole_load_time)
+            #     self.MOTs.aom_3D_red.sw.off()
+            #     self.ttl5.off()
+        
+        
+        self.MOTs.take_MOT_image(self.Camera)
+        delay(10*ms)
+        self.Camera.process_image(bg_sub=True)
+        delay(300*ms)
+        self.core.wait_until_mu(now_mu())
+        delay(200*ms)
+        self.MOTs.AOMs_off_all()
+        delay(50*ms)
+
+        
+    @kernel  
+    def measure(self, point):
+        self.run_exp(freq=self.mol_freq,amp=self.mol_pow)
+        return 0
        
     def calculate_dim0(self, dim1_model):
         ###make it simple: total photons in camera image

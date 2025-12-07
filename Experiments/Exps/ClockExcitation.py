@@ -15,7 +15,7 @@ import pyvisa
 from CoolingClass import _Cooling
 from CameraClass import _Camera
 
-from StateControlClass import _STATE_CONTROL
+from StateControlClass import _state_control
 from BraggClass import _Bragg
 from AWG import WaveformGenerator
 from repository.models.scan_models import AI_Rabi_Model as myModel
@@ -33,11 +33,8 @@ class ClockExcitation_exp(Scan1D, TimeFreqScan, EnvExperiment):
         # import classes for experiment control
         self.MOTs = _Cooling(self)
         self.Camera = _Camera(self)
-        self.State_Control = _STATE_CONTROL(self)
+        self.State_Control = _state_control(self)
         self.Bragg = _Bragg(self)
-        
-        self.rigol=None
-        self.wg = WaveformGenerator()
         
         self.enable_pausing = True # disable to speed up by not checking scheduler
         self.enable_auto_tracking=False
@@ -47,7 +44,7 @@ class ClockExcitation_exp(Scan1D, TimeFreqScan, EnvExperiment):
              frequencies={'start':-3*MHz,'stop':3*MHz,'npoints':50,'unit':"MHz",'scale':MHz,'global_step':0.1*MHz,'ndecimals':4},
             frequency_center={'default':100*MHz}, pulse_time= {'default':0*us},nbins = {'default':1000},nrepeats = {'default':1},npasses = {'default':1},fit_options = {'default': "No Fits"} )
         
-        self.setattr_argument("dipole_load_time", NumberValue(20.0*1e-3,min=0.0*1e-3,max=9000.00*1e-3,scale=1e-3,
+        self.setattr_argument("dipole_load_time", NumberValue(40.0*1e-3,min=0.0*1e-3,max=9000.00*1e-3,scale=1e-3,
                       unit="ms"),"Params")
         
         self.setattr_argument("pi_time_689", NumberValue(0.15*1e-6,min=0.0*1e-6,max=1000.00*1e-6,scale=1e-6,ndecimals=3,
@@ -58,6 +55,7 @@ class ClockExcitation_exp(Scan1D, TimeFreqScan, EnvExperiment):
         self.setattr_argument("excited_state", EnumerationValue(['3P1', "3P0"], default='3P1'), "Params")
         self.setattr_argument("readout_scheme", EnumerationValue(["0","1","2"], default="0"), "Params")
         self.setattr_argument("cavity_clear",BooleanValue(False),"Params")
+        self.setattr_argument("free_space",BooleanValue(False),"Params")
         self.setattr_argument("B_field", NumberValue(0.88,min=0.0,max=2,scale=1,
                       unit="V", ndecimals=3),"Params")
         
@@ -71,7 +69,7 @@ class ClockExcitation_exp(Scan1D, TimeFreqScan, EnvExperiment):
         
         self.MOTs.prepare_coils()
         
-        self.Camera.camera_init()
+        self.Camera.camera_init(scheme = 0)
         
         
         self.enable_histograms = True
@@ -91,7 +89,7 @@ class ClockExcitation_exp(Scan1D, TimeFreqScan, EnvExperiment):
         #init AOMs
         self.MOTs.init_aoms(on=False)  
         self.State_Control.init_aoms(on=False)
-        self.Bragg.init_aoms(on=True)
+        self.Bragg.init_aoms()
         
         delay(10*ms)
         
@@ -129,12 +127,12 @@ class ClockExcitation_exp(Scan1D, TimeFreqScan, EnvExperiment):
         delay(1*ms)
         
         if self.excited_state=='3P1':
-            self.State_Control.set_AOM_freq_689(frequency)
+            self.State_Control.set_AOM_freq_689(frequency, self.State_Control.scale_689)
         
         elif self.excited_state=='3P0':   
-            self.State_Control.set_AOM_freq_689(self.State_Control.freq_689)
-            self.State_Control.set_AOM_freq_688(self.State_Control.freq_688)
-            self.State_Control.set_AOM_freq_679(frequency)
+            self.State_Control.set_AOM_freq_689(self.State_Control.freq_689, self.State_Control.scale_689)
+            self.State_Control.set_AOM_freq_688(self.State_Control.freq_688, self.State_Control.scale_688)
+            self.State_Control.set_AOM_freq_679(frequency, self.State_Control.scale_679)
             delay(1*ms)
         else:
             raise Exception('Not Valid State')
@@ -143,25 +141,32 @@ class ClockExcitation_exp(Scan1D, TimeFreqScan, EnvExperiment):
         delay(35*ms)
         
         # generate red mot
-        #self.MOTs.rMOT_pulse()
+        self.MOTs.close_688() # close 688 shutter to prevent leakage from optical pumping
         self.MOTs.rMOT_pulse_new()
+        self.MOTs.open_688() # open shutter after 689 rMOT light turns off to be prepare for Raman pulse
+        if self.MOTs.molasses:
+               with parallel:
+                   self.MOTs.set_current_dir(1) 
+                   self.MOTs.molasses_pulse(freq=self.MOTs.molasses_frequency, amp=0.1, t = self.dipole_load_time)
+        else:
+            with parallel:
+                delay(self.dipole_load_time) # Needs to by >~ 40 ms for cavity shaking to stop.
+                self.MOTs.set_current_dir(1) # let MOT field go to zero and switch H-bridge, 5ms
         
-        # hold in dipole trap while changing MOT config
-        with parallel:
-            delay(self.dipole_load_time)
-            with sequential:
-                self.MOTs.set_current_dir(1) # XXX let MOT field go to zero and switch H-bridge, 5ms
-                self.MOTs.set_current(self.B_field)
-                #self.MOTs.set_current(time/(1*us))
-
-        delay(1000*us)
-        delay(20*us)
+     
+        self.MOTs.Blackman_ramp(0.0, self.B_field, 20*ms) # set bias field so 3P1 m=+1 is ~40MHz separated.
+        delay(5*ms)
         
-        # experiment
-        self.ttl5.on()       # for triggering start
+        if self.free_space:
+            self.Bragg.set_AOM_attens([("Dipole",30.0 )])
+            self.Bragg.AOMs_off(["Lattice"])
         
+        delay(100*us)
+       
+        # experiment        
         # -----  3P1 EXCITATION -----------------------
         if self.excited_state=='3P1':
+            self.ttl5.on() 
             self.State_Control.pulse_689(time)
             self.readout(scheme="0")
             self.ttl5.off()
@@ -171,6 +176,7 @@ class ClockExcitation_exp(Scan1D, TimeFreqScan, EnvExperiment):
         elif self.excited_state=='3P0':
             
             if self.cavity_clear:
+                self.ttl5.on()       # for triggering start
                 # prepare in 3P0
                 self.State_Control.pulse_689(self.pi_time_689)
                 delay(0.15*us)
@@ -178,24 +184,88 @@ class ClockExcitation_exp(Scan1D, TimeFreqScan, EnvExperiment):
                     self.State_Control.pulse_679(self.pi_time_Raman)
                     self.State_Control.pulse_688(self.pi_time_Raman)
                 # clear cavity
-                self.State_Control.cav_clear_pulse(1000*us)
-                delay(1000*us)
+                self.State_Control.cav_clear_pulse(2.5*ms)
+                self.ttl5.off()
                 
-                # Rabi flop from 3P0
-                with parallel:
+                
+                
+                ### Repeated lasing
+                # for i in range(10):
+                #     delay(5*us)
+                #     self.ttl5.on()
+                #     self.MOTs.aom_3P2.sw.on()
+                #     self.MOTs.aom_3P0.sw.on()
+                #     delay(10*us)
+                #     self.MOTs.aom_3P2.sw.off()
+                #     self.MOTs.aom_3P0.sw.off()
+                #     with parallel:
+                #         self.State_Control.pulse_679(self.pi_time_Raman)
+                #         self.State_Control.pulse_688(self.pi_time_Raman)
+                #     delay(50*us)
+
+                #     self.ttl5.off()       # for triggering start
+                #     # prepare in 3P0
+                #     self.State_Control.pulse_689(self.pi_time_689)
+                #     delay(0.15*us)
+                #     with parallel:
+                #         self.State_Control.pulse_679(self.pi_time_Raman)
+                #         self.State_Control.pulse_688(self.pi_time_Raman)
+                #     # clear cavity
+                #     self.State_Control.cav_clear_pulse(100*us)
+                #     delay(100*us)
+                    
+
+                ### Rabi flop from 3P0
+                with parallel: # Raman pulse
                     self.State_Control.pulse_679(time)
                     self.State_Control.pulse_688(time)
                 delay(0.3*us)
                 self.State_Control.pulse_689(self.pi_time_689)
+                delay(200*us) # let 3P1 decay to 1S0
+                
+                ### Cheap Ramsey time scan
+                # with parallel: # Raman pulse
+                #     self.State_Control.pulse_679(0.374*us)
+                #     self.State_Control.pulse_688(0.374*us)
+                # delay(0.3*us)
+                # self.State_Control.pulse_689(self.pi_time_689)
+                
+                # delay(time)
+                
+                # self.State_Control.pulse_689(self.pi_time_689)
+                # delay(0.15*us)
+                # with parallel:
+                #     self.State_Control.pulse_679(0.374*us)
+                #     self.State_Control.pulse_688(0.374*us)
+                # delay(200*us) # let 3P1 decay to 1S0
                 
             
                 
             else:    
+                
+                self.ttl5.on()       # for triggering start
                 self.State_Control.pulse_689(self.pi_time_689)
                 delay(0.15*us)
                 with parallel:
                     self.State_Control.pulse_679(time)
                     self.State_Control.pulse_688(time)
+                
+                # delay(2*ms)
+                # self.ttl5.on()       # for triggering start
+                # self.State_Control.pulse_689(self.pi_time_689/2)
+                # delay(0.15*us)
+                # with parallel:
+                #     self.State_Control.pulse_679(self.pi_time_Raman)
+                #     self.State_Control.pulse_688(self.pi_time_Raman)
+                    
+                # delay(time)
+                
+                # with parallel:
+                #     self.State_Control.pulse_679(self.pi_time_Raman)
+                #     self.State_Control.pulse_688(self.pi_time_Raman)
+                # delay(0.35*us)
+                # self.State_Control.pulse_689(self.pi_time_689/2)
+                
             
             self.ttl5.off()
             
@@ -207,8 +277,11 @@ class ClockExcitation_exp(Scan1D, TimeFreqScan, EnvExperiment):
 
         
         
+        
         # image and reset for next shot
         self.MOTs.take_MOT_image(self.Camera)  
+        self.Bragg.set_AOM_attens([("Dipole",self.Bragg.atten_Dipole)])
+        self.Bragg.AOMs_on(["Lattice"])
         delay(15*ms)
         
         self.MOTs.set_current(0.0)
@@ -217,7 +290,7 @@ class ClockExcitation_exp(Scan1D, TimeFreqScan, EnvExperiment):
         delay(5*ms)  
         
         #process and output
-        self.MOTs.AOMs_on(self.MOTs.AOMs) # just keeps AOMs warm
+        self.MOTs.AOMs_on_all() # just keeps AOMs warm
         self.Camera.process_image(save=True, name='', bg_sub=True)
         delay(400*ms)
         
@@ -236,10 +309,9 @@ class ClockExcitation_exp(Scan1D, TimeFreqScan, EnvExperiment):
 
         """
         if scheme == "0":
-            #delay(200*us)
-            self.State_Control.push_pulse(self.MOTs.Push_pulse_time)
-            self.MOTs.aom_3P0.sw.off()
-            self.MOTs.aom_3P2.sw.off()
+            self.State_Control.push_pulse(self.MOTs.Push_pulse_time)            
+            self.MOTs.aom_3P0.sw.on()
+            self.MOTs.aom_3P2.sw.on()
             delay(self.MOTs.Delay_duration)
             self.MOTs.aom_3P0.sw.off()
             self.MOTs.aom_3P2.sw.off()
@@ -259,36 +331,25 @@ class ClockExcitation_exp(Scan1D, TimeFreqScan, EnvExperiment):
         elif scheme == "2":
             delay(200*us)
             self.State_Control.push_pulse(self.MOTs.Push_pulse_time)
-            
-            self.MOTs.AOMs_on(['3P2_repump'])
+
+            self.MOTs.aom_3P2.sw.on()
             delay(200*us)
-            self.MOTs.AOMs_off(['3P2_repump'])
+            self.MOTs.aom_3P2.sw.off()
             
             delay(200*us)
             self.State_Control.push_pulse(self.MOTs.Push_pulse_time)
             delay(5*us)
             
-            self.MOTs.AOMs_on(['3P0_repump', '3P2_repump'])
+            self.MOTs.aom_3P0.sw.on()
+            self.MOTs.aom_3P2.sw.on()
             delay(self.MOTs.Delay_duration)
-            self.MOTs.AOMs_off(['3P0_repump', '3P2_repump'])
+            self.MOTs.aom_3P0.sw.off()
+            self.MOTs.aom_3P2.sw.off()
         else:
             raise Exception("Not a valid readout scheme...")
             
             
-            
-    @kernel
-    def raman_pulse(self, time):
-        self.State_Control.AOMs_on(['688'])
-        delay(0.1*us)
-        self.State_Control.AOMs_on(["679"]) 
         
-        
-        delay(time)
-        
-        
-        self.State_Control.AOMs_off(['688']) 
-        delay(0.07*us)
-        self.State_Control.AOMs_off(["679"])
                 
     @kernel
     def after_scan(self):

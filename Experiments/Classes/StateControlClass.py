@@ -11,14 +11,14 @@ import numpy as np
 
 from artiq.coredevice.ad9910 import PHASE_MODE_TRACKING
 
-class _STATE_CONTROL(EnvExperiment):
+class _state_control(EnvExperiment):
 
 
     def build(self):
         self.setattr_device("core")
         self.setattr_device("urukul0_cpld")
         
-        self.setattr_device("ttl6") # for opening cvity clearn channel
+        self.setattr_device("ttl6") # for opening cavity clear channel
 
         # names for all our AOMs
         self.AOMs = ["688", 'Push', '679', "689"]
@@ -27,14 +27,19 @@ class _STATE_CONTROL(EnvExperiment):
         # default values for all params for all AOMs
         self.scales = [0.8, 0.8, 0.8, 0.8]
 
-        self.attens = [8.0, 6.0, 6.0, 12.0]
+        self.attens = [8.0, 6.0, 10.0, 8.0]
 
-        self.freqs = [80.0, 205.0, 200.0, 200.0]
+        self.freqs = [80.0, 102.5, 200.0, 220.0]
 
         self.urukul_channels = [self.get_device("urukul0_ch0"),
                                 self.get_device("urukul0_ch1"), 
                                 self.get_device("urukul0_ch2"),
                                 self.get_device("urukul0_ch3")]
+        
+        self.aom_688 = self.urukul_channels[0]
+        self.aom_push = self.urukul_channels[1]
+        self.aom_679 = self.urukul_channels[2]
+        self.aom_689 = self.urukul_channels[3]
 
         # setting attributes to controll all AOMs
         for i in range(len(self.AOMs)):
@@ -103,16 +108,16 @@ class _STATE_CONTROL(EnvExperiment):
                 ch.set_mu(set_freq, asf=set_asf)
 
     @kernel 
-    def set_AOM_freq_689(self,freq):
-        self.urukul_channels[3].set(frequency=freq,amplitude=0.8)    
+    def set_AOM_freq_689(self,freq, amp=0.8):
+        self.urukul_channels[3].set(frequency=freq,amplitude=amp)    
         
     @kernel 
-    def set_AOM_freq_679(self,freq):
-        self.urukul_channels[2].set(frequency=freq,amplitude=0.8)    
+    def set_AOM_freq_679(self,freq, amp=0.8):
+        self.urukul_channels[2].set(frequency=freq,amplitude=amp)    
         
     @kernel 
-    def set_AOM_freq_688(self,freq):
-        self.urukul_channels[0].set(frequency=freq,amplitude=0.8)    
+    def set_AOM_freq_688(self,freq, amp=0.8):
+        self.urukul_channels[0].set(frequency=freq,amplitude=amp)    
 
 
     @kernel
@@ -135,12 +140,19 @@ class _STATE_CONTROL(EnvExperiment):
                 set_asf = ch.amplitude_to_asf(self.scales[ind])
                 ch.set_mu(set_freq, asf=set_asf)
 
+    # @kernel
+    # def set_AOM_phase(self, aom_name, freq, ph, t, prof=0):
+    #     ind = self.index_artiq(aom_name)
+    #     self.freqs[ind] = freq
+    #     ch = self.urukul_channels[ind]
+    #     ch.set(freq, phase=ph, phase_mode=PHASE_MODE_TRACKING,amplitude=0.8, ref_time_mu=t, profile=prof)
     @kernel
-    def set_AOM_phase(self, aom_name, freq, ph, t, prof=0):
-        ind = self.index_artiq(aom_name)
+    def set_AOM_phase(self, ind, freq, ph, t, prof=0):
         self.freqs[ind] = freq
         ch = self.urukul_channels[ind]
         ch.set(freq, phase=ph, phase_mode=PHASE_MODE_TRACKING,amplitude=0.8, ref_time_mu=t, profile=prof)
+        
+        
     @kernel
     def set_phase_mode(self, mode):
         for i in range(4):
@@ -180,8 +192,16 @@ class _STATE_CONTROL(EnvExperiment):
         self.ttl6.off()
         #self.urukul_channels[1].set(frequency=self.freq_Push,amplitude=0.8)
         
-
+    @kernel
+    def pulse_push(self, t):
+        self.ttl6.on() #switches to drive cavity clear aom
+        self.pulse(t, 1, 0.0)
+        self.ttl6.off()
+    
+  
         
+       
+    
     @kernel 
     def pulse_688(self,t):
         
@@ -201,11 +221,9 @@ class _STATE_CONTROL(EnvExperiment):
         self.pulse(t, 2, added)
         delay(rewind-added)
         
-
-        
     @kernel 
     def pulse_689(self,t):
-        rewind=700*ns
+        rewind=400*ns
         added=100*ns
         
         delay(-rewind)
@@ -220,6 +238,7 @@ class _STATE_CONTROL(EnvExperiment):
         
 
     def index_artiq(self, aom) -> TInt32:
+        raise Exception("Using bad function, fix code")
         for i in range(len(self.AOMs)):
             if self.AOMs[i] == aom:
                 return i

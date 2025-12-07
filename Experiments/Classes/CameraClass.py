@@ -32,7 +32,7 @@ class _Camera(EnvExperiment):
         
         
         # 
-        self.setattr_argument("Exposure_Time",NumberValue(1.5*1e-3,min=0.5e-3,max=100*1e-3,scale=1e-3,
+        self.setattr_argument("Exposure_Time",NumberValue(0.5*1e-3,min=0.5e-3,max=100*1e-3,scale=1e-3,
                       unit="ms"),"Detection")        
         self.setattr_argument("Hardware_Gain",NumberValue(150,min=0,max=350,scale=1
                       ),"Detection")
@@ -48,7 +48,67 @@ class _Camera(EnvExperiment):
     def prep_datasets(self,x):
         self.set_dataset("detection.counts",x, broadcast=True)    
         
-    def camera_init(self):
+    # def camera_init(self):
+    #     # set camera settings
+    #     if self.get_is_armed(): self.disarm()
+    #     self.cam.set_exposure(self.Exposure_Time)
+    #     self.cam.set_gain(self.Hardware_Gain)
+    #     #self.cam.set_roi(1200,1400,1000,1000) ###USED for 3-photon 689
+        
+    #     self.cam.set_roi(1250,1425,400,300)
+    #     self.cam_range = (50,-40, 30,-10)
+    #     self.cam.get_all_images() ## clears buffer
+
+    #     # for data analysis
+    #     self.pix2um = 67.8
+    #     X, Y = np.meshgrid(np.arange(0, self.ysize, 1), np.arange(0, self.xsize, 1))
+    #     self.xdata = np.vstack((X.ravel(), Y.ravel()))
+        
+    #     self.ind = 0
+
+    #     #mot ranges horizontal push
+    #     self.y1 = 200
+    #     self.y2 = 600
+
+    #     self.x1 = 5
+    #     self.x2 = 50
+    #     self.x3 = 500
+        
+    #     # # 689 horizontal push
+    #     self.ycen = 140
+    #     self.xcen = 230
+    #     self.xydev =100
+    #     self.xdev1 = 100
+    #     self.xdev2 = 60
+    #     self.ydev = 100
+        
+    #     # 689 horizontal double push
+    #     # self.ycen = 140
+    #     # self.xcen = 120
+    #     # self.xydev =100
+    #     # self.xdev1 = 100
+    #     # self.xdev2 = 100
+    #     # self.ydev = 100
+        
+    #     # 689 vertical push
+    #     # self.ycen = 110
+    #     # self.xcen = 185
+    #     # self.xdev = 25
+    #     # self.ydev = 40
+    #     # self.xdev1 = 20
+    #     # self.xdev2 = 20
+    #     # self.ydev1 = 25
+    #     # self.ydev2 = 80
+        
+    #     # interferometry
+    #     self.xint = 150
+    #     self.intdev = 15
+    #     self.y0hk = 176
+    #     self.y2hk = self.y0hk-2*self.intdev
+    #     self.y2hkm = self.y0hk+2*self.intdev
+    #     self.y4hk = 100
+ 
+    def camera_init(self, scheme=0):
         # set camera settings
         if self.get_is_armed(): self.disarm()
         self.cam.set_exposure(self.Exposure_Time)
@@ -74,21 +134,21 @@ class _Camera(EnvExperiment):
         self.x2 = 50
         self.x3 = 500
         
-        # # 689 horisontal push
-        self.ycen = 120
-        self.xcen = 190
-        self.xydev = 35
-        self.xdev1 = 50
-        self.xdev2 = 30
-        self.ydev = 60
+        if scheme == 0: # # 689 horizontal push
+            self.ycen = 140
+            self.xcen = 230
+            self.xydev =100
+            self.xdev1 = 70
+            self.xdev2 = 60
+            self.ydev = 100
         
-        # 689 horisontal double push
-        # self.ycen = 110
-        # self.xcen = 138
-        # self.xydev = 35
-        # self.xdev1 = 55
-        # self.xdev2 = 55
-        # self.ydev = 45
+        if scheme == 1: # 689 horizontal double push
+            self.ycen = 140
+            self.xcen = 160
+            self.xydev =50
+            self.xdev1 = 70
+            self.xdev2 = 70
+            self.ydev = 100
         
         # 689 vertical push
         # self.ycen = 110
@@ -107,7 +167,6 @@ class _Camera(EnvExperiment):
         self.y2hk = self.y0hk-2*self.intdev
         self.y2hkm = self.y0hk+2*self.intdev
         self.y4hk = 100
- 
                   
     def arm(self, N=2):   
         # arm the camera

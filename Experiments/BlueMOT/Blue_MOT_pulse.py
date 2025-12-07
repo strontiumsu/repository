@@ -53,12 +53,28 @@ class Blue_MOT_pulse_exp(EnvExperiment):
 
             delay(200*ms)
             self.MOTs.bMOT_load()
+            # self.MOTs.aom_3P2.sw.off()
+            # delay(50*ms)
+            # self.MOTs.aom_3P0.sw.off()
+            # self.MOTs.aom_3D_blue.sw.off()
+            
+            # tramp = 10*ms
+            # dt = tramp/int(self.MOTs.Npoints)
+            # for step in range(1, int(self.MOTs.Npoints)):
+            #     self.MOTs.dac_set(0,  self.MOTs.bmot_current + 1.5/tramp*step*dt)
+            #     delay(dt)
+            # self.MOTs.aom_3P0.sw.on()
+            # self.MOTs.aom_3P2.sw.on()
+            # delay(2*ms)
+            # self.MOTs.aom_3P0.sw.off()
+            # self.MOTs.aom_3P2.sw.off()
+            
             if self.image: self.MOTs.take_MOT_image(self.Camera)
             delay(10*ms)
 
             self.MOTs.Blackman_ramp_down()
             self.MOTs.atom_source_off()
-            self.MOTs.AOMs_off(["3D", "3P0_repump", "3P2_repump"])
+            self.MOTs.AOMs_off_all()
             delay(50*ms)
 
             if self.image: self.Camera.process_image(bg_sub=True)

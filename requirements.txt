@@ -1,0 +1,6 @@
+# H5 Image Analyzer GUI Requirements
+h5py>=3.7.0
+numpy>=1.21.0
+matplotlib>=3.5.0
+PyQt5>=5.15.0
+pandas>=1.3.0

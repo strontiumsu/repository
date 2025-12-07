@@ -15,9 +15,8 @@ from artiq.coredevice import ad9910
 from CoolingClass import _Cooling
 from CameraClass import _Camera
 
-from StateControlClass import _STATE_CONTROL
+from StateControlClass import _state_control
 from BraggClass import _Bragg
-from AWG import WaveformGenerator
 from repository.models.scan_models import AI_Rabi_Model as myModel
 
 
@@ -33,11 +32,9 @@ class ClockRabiVRS_exp(Scan1D, TimeFreqScan, EnvExperiment):
         # import classes for experiment control
         self.MOTs = _Cooling(self)
         self.Camera = _Camera(self)
-        self.State_Control = _STATE_CONTROL(self)
+        self.State_Control = _state_control(self)
         self.Bragg = _Bragg(self)
         
-        self.rigol=None
-        self.wg = WaveformGenerator()
         
         self.enable_pausing = True # disable to speed up by not checking scheduler
         self.enable_auto_tracking=False
@@ -189,7 +186,7 @@ class ClockRabiVRS_exp(Scan1D, TimeFreqScan, EnvExperiment):
         #init AOMs
         self.MOTs.init_aoms(on=False)  
         self.State_Control.init_aoms(on=False)
-        self.Bragg.init_aoms(on=True)
+        self.Bragg.init_aoms()
         
         delay(10*ms)
         
@@ -221,7 +218,6 @@ class ClockRabiVRS_exp(Scan1D, TimeFreqScan, EnvExperiment):
         self.load_scan()
         delay(1*ms)
 
-        # before this point is just for preparing the RAM and RIGOL
         self.core.break_realtime()
         delay(10*ms)
 
@@ -247,11 +243,8 @@ class ClockRabiVRS_exp(Scan1D, TimeFreqScan, EnvExperiment):
             delay(self.dipole_load_time)
             with sequential:
                 self.MOTs.set_current_dir(1) # XXX let MOT field go to zero and switch H-bridge, 5ms
-                self.MOTs.set_current(self.B_field)
+                self.MOTs.Blackman_ramp(0.0, self.B_field, 20*ms)
                 
-
-        delay(1000*us)
-        delay(20*us)
         
         # experiment
         if self.pre_measurement:
@@ -267,55 +260,55 @@ class ClockRabiVRS_exp(Scan1D, TimeFreqScan, EnvExperiment):
                 self.ttl5.off()
             self.Bragg.AOMs_off(["Bragg2"])
         
-        # -----  Excitation -----------------------
-        self.ttl5.off()
+        # # -----  Excitation -----------------------
+        # self.ttl5.off()
         
-        if self.cavity_clear:
-            # prepare in 3P0
-            self.State_Control.pulse_689(self.pi_time_689)
-            delay(0.15*us)
-            with parallel:
-                self.State_Control.pulse_679(self.pi_time_Ramsey)
-                self.State_Control.pulse_688(self.pi_time_Ramsey)
-            # clear cavity
-            self.State_Control.cav_clear_pulse(1000*us)
-            delay(1000*us)
+        # if self.cavity_clear:
+        #     # prepare in 3P0
+        #     self.State_Control.pulse_689(self.pi_time_689)
+        #     delay(0.15*us)
+        #     with parallel:
+        #         self.State_Control.pulse_679(self.pi_time_Ramsey)
+        #         self.State_Control.pulse_688(self.pi_time_Ramsey)
+        #     # clear cavity
+        #     self.State_Control.cav_clear_pulse(1000*us)
+        #     delay(1000*us)
             
-            # # Rabi flop from 3P0
-            # with parallel:
-            #     self.State_Control.pulse_679(time)
-            #     self.State_Control.pulse_688(time)
-            # delay(0.3*us)
-            # self.State_Control.pulse_689(self.pi_time_689)
+        #     # # Rabi flop from 3P0
+        #     # with parallel:
+        #     #     self.State_Control.pulse_679(time)
+        #     #     self.State_Control.pulse_688(time)
+        #     # delay(0.3*us)
+        #     # self.State_Control.pulse_689(self.pi_time_689)
             
   
-        else:    
-            self.State_Control.pulse_689(self.pi_time_689)
-            delay(0.15*us)
-            with parallel:
-                self.State_Control.pulse_679(time)
-                self.State_Control.pulse_688(time)
+        # else:    
+        #     self.State_Control.pulse_689(self.pi_time_689)
+        #     delay(0.15*us)
+        #     with parallel:
+        #         self.State_Control.pulse_679(time)
+        #         self.State_Control.pulse_688(time)
         
-        self.ttl5.off()
+        # self.ttl5.off()
         
             
             
-        self.MOTs.aom_3P0.sw.on()
-        self.MOTs.aom_3P2.sw.on()
-        delay(200*us)
-        self.MOTs.aom_3P0.sw.off()
-        self.MOTs.aom_3P2.sw.off()
-        #-----  Measure VRS with after excitation -----------------------
-        self.Bragg.AOMs_on(["Bragg2"])
-        with parallel:
-            self.scan_dds.sw.on()
-            self.ttl5.on()
-            self.scan_dds.cpld.io_update.pulse_mu(8)
-        delay(self.scan_time)
-        with parallel:
-            self.scan_dds.sw.off()
-            self.ttl5.off()
-        self.Bragg.AOMs_off(["Bragg2"])
+        # self.MOTs.aom_3P0.sw.on()
+        # self.MOTs.aom_3P2.sw.on()
+        # delay(200*us)
+        # self.MOTs.aom_3P0.sw.off()
+        # self.MOTs.aom_3P2.sw.off()
+        # #-----  Measure VRS with after excitation -----------------------
+        # self.Bragg.AOMs_on(["Bragg2"])
+        # with parallel:
+        #     self.scan_dds.sw.on()
+        #     self.ttl5.on()
+        #     self.scan_dds.cpld.io_update.pulse_mu(8)
+        # delay(self.scan_time)
+        # with parallel:
+        #     self.scan_dds.sw.off()
+        #     self.ttl5.off()
+        # self.Bragg.AOMs_off(["Bragg2"])
         
         self.MOTs.aom_3P0.sw.on()
         self.MOTs.aom_3P2.sw.on()

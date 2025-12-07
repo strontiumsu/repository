@@ -1,6 +1,8 @@
-# -*- coding: utf-8 -*-
+
+    
+    # -*- coding: utf-8 -*-
 """
-Created on Mon Aug 18 14:56:45 2025
+Created on Wed Aug 27 12:17:35 2025
 
 @author: sr
 """
@@ -8,12 +10,14 @@ Created on Mon Aug 18 14:56:45 2025
 from artiq.experiment import *
 from scan_framework import Scan1D, TimeScan
 import numpy as np
-from artiq.coredevice import ad9910
 
 from CoolingClass import _Cooling
 from CameraClass import _Camera
 from BraggClass import _Bragg
-from repository.models.scan_models import RabiModel
+from StateControlClass import _state_control
+
+from artiq.coredevice import ad9910
+from artiq.coredevice.ad9910 import PHASE_MODE_TRACKING
 
 
 class TTL_VRS(Scan1D, TimeScan, EnvExperiment):
@@ -21,26 +25,19 @@ class TTL_VRS(Scan1D, TimeScan, EnvExperiment):
     def build(self, **kwargs):
         
         super().build(**kwargs)
-        self.setattr_device("ttl5") # triggering pulse
-        self.setattr_device("ttl0")             #sets drivers of TTL0 as attributes
-
-        # import classes for experiment control
-        self.MOTs = _Cooling(self)
-        self.Camera = _Camera(self)
+        
+        # hardware and class objects
+        self.setattr_device("ttl5")
+        self.setattr_device("ttl0")
         self.Bragg = _Bragg(self)
         
-        # self.log = [(np.int64(0), np.int64(0))]*5
-        # self.ind = 0
-        # self.t0 = np.int64(0)
-        # self.t0_rtio = np.int64(0)
         
-                # attributes here
+        
         self.enable_pausing = True # disable to speed up by not checking scheduler
         self.enable_auto_tracking=False
-        self.enable_profiling = False # enable to print runtime statistics to find bottlenecks
+
         
-        self.scan_dds = self.Bragg.urukul_channels[1]
-        
+        #scan parameters
         self.scan_arguments(times = {'start':1*1e-6,
             'stop':10*1e-6,
             'npoints':20,
@@ -53,17 +50,13 @@ class TTL_VRS(Scan1D, TimeScan, EnvExperiment):
             npasses = {'default':1},
             fit_options = {'default':"Fit and Save"}
             )
-
-        # Arguments 
-        self.setattr_argument("dipole_load_time", 
-                              NumberValue(
-                                  15*1e-3,
-                                  min=1.0*1e-3,
-                                  max=5000.00*1e-3,
-                                  scale=1e-3,
-                                  unit="ms"),
-                              "parameters")     
-        self.setattr_argument("freq_center", 
+        
+        
+        
+        
+        # VRS Scan args
+        # Arguments   
+        self.setattr_argument("freq_center_trigg", 
                               NumberValue(
                                   3*1e6,
                                   min=0.1*1e6,
@@ -71,243 +64,219 @@ class TTL_VRS(Scan1D, TimeScan, EnvExperiment):
                                   scale=1e6,
                                   unit="MHz",
                                   ndecimals = 3),
-                              "parameters")     
-        self.setattr_argument("freq_width", 
+                              "scans")     
+        self.setattr_argument("freq_width_trigg", 
                               NumberValue(
                                   1*1e6,
-                                  min=-10.0*1e6,
-                                  max=10.0*1e6,
+                                  min=-50.0*1e6,
+                                  max=50.0*1e6,
                                   scale=1e6,
                                   unit="MHz"),
-                              "parameters")
-        self.setattr_argument("pulses", 
+                              "scans")
+    
+        self.setattr_argument("scan_time_trigg", 
                               NumberValue(
-                                  10,
-                                  min=1,
-                                  max=1000,
-                                  scale=1,),
-                              "parameters")
-        self.setattr_argument("scan_time", 
-                              NumberValue(
-                                  100*1e-6,
+                                  1000*1e-6,
                                   min=1*1e-6,
                                   max=50000*1e-6,
                                   scale=1e-6,
                                   unit='us'),
-                              "parameters")
-
-        self.freq_list= np.linspace(80.0*MHz, 80.0*MHz, 1024)
-        self.freq_list2= np.linspace(80.0*MHz, 80.0*MHz, 1024)
-
-        self.freq_list_ram = np.full(1024, 1)
-        self.freq_list_ram2 = np.full(1024, 1)
-        self.step_size=0
+                              "scans")
         
+        self.setattr_argument("freq_center_meas", 
+                              NumberValue(
+                                  80*1e6,
+                                  min=0.1*1e6,
+                                  max=200.0*1e6,
+                                  scale=1e6,
+                                  unit="MHz",
+                                  ndecimals = 3),
+                              "scans")     
+        self.setattr_argument("freq_width_meas", 
+                              NumberValue(
+                                  1*1e6,
+                                  min=-50.0*1e6,
+                                  max=50.0*1e6,
+                                  scale=1e6,
+                                  unit="MHz"),
+                              "scans")
+    
+        self.setattr_argument("scan_time_meas", 
+                              NumberValue(
+                                  1000*1e-6,
+                                  min=1*1e-6,
+                                  max=50000*1e-6,
+                                  scale=1e-6,
+                                  unit='us'),
+                              "scans")
+        
+        self.setattr_argument("idx_offset", NumberValue(0, min=-500, max=500, scale=1), 'scans')
+        self.setattr_argument("Meas_type", EnumerationValue(['Scan', "Probe"], default='Scan'), "scans")
+
+        
+        
+        # Prep DDS scan
+        self.freq_list= np.linspace(0.0*MHz, 0.0*MHz, 1024)
+        self.freq_list_ram = np.full(1024, 1)
+        self.step_size = 0
+        
+        self.scan_dds_trigg = self.Bragg.urukul_channels[1]
+        self.scan_dds_meas = self.Bragg.urukul_channels[2]
+        
+
+        
+        
+
+        
+    
         
         
     def prepare(self):
-        #prepare/initialize mot hardware and camera
-        
-        self.MOTs.prepare_aoms()
-        self.MOTs.prepare_coils()
-        self.Camera.camera_init()
+
         self.Bragg.prepare_aoms()
-        # register model with scan framework
-        
-        self.enable_histograms = True
-        self.model = RabiModel(self)
-        self.register_model(self.model, measurement=False, fit=False)
-        
-        
         
     @kernel
-    def load_scan(self):
-        self.step_size = int(self.scan_time/(1024*4*ns))
-        f0 = self.freq_center + self.freq_width/2
-        if self.freq_width/2 > self.freq_center: raise Exception("Bad Range")
+    def before_scan(self):
+        self.core.reset()
 
-        self.core.break_realtime()
+        # set hardware in known states and initialize
+        self.ttl0.input()
+        self.ttl5.off()
+        self.Bragg.init_aoms(switches=0x9)
+        
+        delay(1*ms)
+        self.core.wait_until_mu(now_mu())
+
+    
+    @kernel
+    def measure(self, point):  
+ 
+        self.core.reset()
+
+        # make sure everything is off
+        self.ttl5.off()
+        self.scan_dds_trigg.sw.off()
+        self.scan_dds_meas.sw.off()
+        
+        
+        delay(1*ms)
+        self.Bragg.aom_bragg1.set(frequency=self.freq_center_trigg-self.freq_width_trigg/2, amplitude=0.8)
+        self.Bragg.aom_bragg2.set(frequency=self.freq_center_meas, amplitude=0.8)
+        delay(1*ms)
+        self.load_scan(self.scan_dds_trigg, self.freq_center_trigg, self.freq_width_trigg, self.scan_time_trigg)
+        self.load_scan(self.scan_dds_meas, self.freq_center_meas, self.freq_width_meas, self.scan_time_meas)
+        delay(1*ms)
+        self.scan_dds_trigg.set_cfr1(internal_profile=0, ram_enable=1, ram_destination=ad9910.RAM_DEST_FTW)
+        delay(10*ms)
+        
+        self.scan_dds_trigg.set_att(self.Bragg.atten_Bragg1)
+        self.scan_dds_meas.set_att(self.Bragg.atten_Bragg2)  
+        self.Bragg.aom_bragg2.set(frequency=self.freq_center_meas, amplitude=0.8)
+        delay(1*ms)
+                
+        
+        with parallel:   
+            self.ttl5.on()
+            self.scan_dds_trigg.sw.on()
+            self.scan_dds_meas.sw.on()
+            self.scan_dds_trigg.cpld.io_update.pulse_mu(8)
+            
+        delay(self.scan_time_trigg)
+        
+        with parallel:
+            self.ttl5.off()
+            self.scan_dds_trigg.sw.off()
+            self.scan_dds_meas.sw.off()
+            
+        with parallel:
+            delay(50*us)
+            with sequential:
+                self.freeze_RAM(900)
+                self.scan_dds_trigg.cpld.io_update.pulse_mu(8)  # apply start=end=900 once
+                
+                # Now turn RAM OFF on trig so it just holds that FTW
+                self.scan_dds_trigg.set_cfr1(ram_enable=0)
+                self.scan_dds_trigg.cpld.io_update.pulse_mu(8)
+                
+                self.scan_dds_meas.cpld.set_profile(0)
+                self.scan_dds_meas.cpld.io_update.pulse_mu(8)
+                
+                self.scan_dds_meas.set_cfr1(internal_profile=0, ram_enable=1, ram_destination=ad9910.RAM_DEST_FTW)
+                
+                
+            
+        self.ttl5.on()   
+        with parallel:   
+            
+            self.scan_dds_trigg.sw.on()
+            self.scan_dds_meas.sw.on()
+            self.scan_dds_meas.cpld.io_update.pulse_mu(8)
+            
+        delay(self.scan_time_meas)
+        
+        with parallel:
+            
+            self.scan_dds_trigg.sw.off()
+            self.scan_dds_meas.sw.off()
+        self.ttl5.off()
+        
+
+        return 0
+        
+    
+    @kernel
+    def freeze_RAM(self, idx):
+        self.scan_dds_trigg.set_profile_ram(start=idx,end=idx, 
+            step=(self.step_size | (2**6 - 1) << 16),profile=0,mode=ad9910.RAM_MODE_RAMPUP)
+        self.scan_dds_trigg.cpld.io_update.pulse_mu(8)
+        
+  
+    
+    @kernel
+    def load_scan(self, dds, f_center, f_width, scan_time):
+        
+        step_size = int(scan_time/(1024*4*ns)  )
+        f0 = f_center + f_width/2
         
         #continuous       
-        f_step = self.freq_width / 1023        
+        f_step = f_width /1023        
         for i in range(1024):
             self.freq_list[i] = f0 - f_step*i
-        # self.freq_list[-1]=self.freq_center
-        # self.freq_list[-2]=self.freq_center
+        
             
-        self.scan_dds.frequency_to_ram(self.freq_list, self.freq_list_ram)
+        dds.frequency_to_ram(self.freq_list, self.freq_list_ram)
 
         self.core.break_realtime()
         delay(10 * ms)
 
-        self.scan_dds.set(self.freq_center - self.freq_width/2, amplitude=self.Bragg.scale_Bragg1)
+        dds.set_cfr1(ram_enable=0)
+        dds.cpld.io_update.pulse_mu(8)
 
-        delay(1 * ms)
-
-        self.scan_dds.set_cfr1(ram_enable=0)
-        self.scan_dds.cpld.io_update.pulse_mu(8)
-
-        self.scan_dds.set_profile_ram(start=0, end=1024-3, step=(self.step_size | (2**6 - 1 ) << 16),
+        dds.set_profile_ram(start=0, end=1023, step=(step_size | (2**6 - 1 ) << 16),
                                   profile=0, mode=ad9910.RAM_MODE_RAMPUP)
-        # self.scan_dds.set_profile_ram(start=1022, end=1023, step=(self.step_size | (2**6 - 1 ) << 16),
-        #                   profile=1, mode=ad9910.RAM_MODE_RAMPUP)
-        self.scan_dds.cpld.set_profile(0)
-
-        delay(100*us) # needs 2x delays here not to throw RTIOUnderflow Error?????
-        delay(100*us)
-
-        self.scan_dds.cpld.io_update.pulse_mu(8)
-        delay(100*us)
-        self.scan_dds.write_ram(self.freq_list_ram[0:1022])
         
-        # self.scan_dds.cpld.set_profile(1)
-        # delay(100*us) # needs 2x delays here not to throw RTIOUnderflow Error?????
-        # delay(100*us)
+        delay(5*ms)
+        dds.cpld.set_profile(0)
+        dds.cpld.io_update.pulse_mu(8)
+        dds.write_ram(self.freq_list_ram)
 
-        # self.scan_dds.cpld.io_update.pulse_mu(8)
-        # delay(100*us)
-        # self.scan_dds.write_ram(self.freq_list_ram[-2:])
+  
+
+        
+        delay(1*ms)
+        dds.cpld.set_profile(0)
+        delay(50*ms)
     
         
         # prepare to enable ram and set frequency as target
         delay(10 * us)
-        self.scan_dds.set_cfr1(internal_profile=0, ram_enable=1, ram_destination=ad9910.RAM_DEST_FTW)
-        delay(10*ms)
+
 
         self.core.wait_until_mu(now_mu())
-
+        
+    @kernel
+    def freeze_RAM(self, idx):
+        self.scan_dds_trigg.set_profile_ram(start=idx,end=idx, 
+            step=(self.step_size | (2**6 - 1) << 16),profile=0,mode=ad9910.RAM_MODE_RAMPUP)
+        # self.scan_dds_trigg.cpld.io_update.pulse_mu(8)
    
-
-    @kernel 
-    def before_scan(self):
-        self.core.reset()
-        #self.ttl1.output()
-        self.ttl5.off()
-        self.MOTs.init_coils()
-        self.MOTs.init_ttls()
-        self.MOTs.init_aoms(on=False)
-        self.Bragg.init_aoms(on=True)
-
-        self.Bragg.AOMs_off(["Bragg1", "Bragg2"])
-        self.MOTs.set_current_dir(0)
-        delay(10*ms)
-        self.MOTs.take_background_image_exp(self.Camera)
-        delay(100*ms)
-        self.MOTs.atom_source_on()
-        delay(100*ms)
-        self.MOTs.AOMs_on_all()
-        delay(200*ms)
-
-        self.MOTs.AOMs_off_all()
-        delay(100*ms)
-        self.MOTs.atom_source_off()
-        
-        self.MOTs.set_current_dir(0)
-        
-        self.core.wait_until_mu(now_mu())
-     
-    def before_measure(self, point, measurement):
-        self.Camera.arm()
-        
-    @kernel
-    def measure(self, point):
-        self.core.reset()
-        delay(1 * ms)
-        self.load_scan()
-        delay(1*ms)
-                
-        # before this point is just for preparing the RAM and RIGOL
-        self.core.break_realtime()
-
-
-        delay(10*ms)
-        self.Bragg.set_AOM_attens([("Bragg1", self.Bragg.atten_Bragg1)])
-        #self.Bragg.set_AOM_attens([("Bragg1", point/(1*us))])
-        
-        self.MOTs.init_rmot_dds(self.MOTs.rmot_freq_i, self.MOTs.rmot_freq_f, self.MOTs.rmot_freq_depth_i, self.MOTs.rmot_freq_depth_f, self.MOTs.freq_3D_red)
-        delay(10 * ms)
-
-        delay(10 * ms)
-        delay(100*ms)
-        self.MOTs.AOMs_off_all()
-        delay(50*ms)
-        
-        self.MOTs.set_current_dir(0)
-
-        self.run_exp(point)
-        
-        self.MOTs.take_MOT_image(self.Camera) # image after variable drop time
-        delay(5*ms)
-        
-        
-        self.scan_dds.set_cfr1(ram_enable=0)
-        self.scan_dds.cpld.io_update.pulse_mu(8)
-        
-        delay(5*ms)
-        self.MOTs.Blackman_ramp(0.3, 0.0, 30*ms)
-        self.MOTs.set_current_dir(0)
-        delay(50*ms)
-        self.Camera.process_image(bg_sub=True)
-        delay(400*ms)
-        self.core.wait_until_mu(now_mu())
-        delay(200*ms)
-        self.MOTs.AOMs_off(['3P0_repump', '3P2_repump', '3D', "3D_red"])
-        delay(300*ms)
-
-        self.core.wait_until_mu(now_mu())
-        return 0
-     
-    
-    @kernel
-    def run_exp(self, delay_time):        
-        self.MOTs.rMOT_pulse_new(sf = False)
-
-        self.MOTs.set_current_dir(1)
-        self.MOTs.Blackman_ramp(0.0, 0.3, 20*ms)
-        
-        with parallel:          
-            t_end = self.ttl0.gate_rising(10*ms)    #opens gate for rising edges to be detected on TTL0 for 10ms
-                                                    #sets variable t_end as time(in MUs) at which detection stops
-            with sequential:
-                ##turn sitting AOM probe on
-                self.scan_dds.sw.on()
-                self.ttl5.on()
-                self.scan_dds.cpld.io_update.pulse_mu(8)
-                    
-            t_edge = self.ttl0.timestamp_mu(t_end)  #sets variable t_edge as time(in MUs) at which first edge is detected
-                                                    #if no edge is detected, sets t_edge to -1
-
-        if t_edge > 0:                          #runs if an edge has been detected
-             at_mu(t_edge)                       #set time cursor to position of edge
-             delay(10*us)
-             self.scan_dds.sw.off()
-             self.ttl5.off()  
-             delay(5*ms)          
-             
-             with parallel:
-                self.scan_dds.sw.on()
-                self.ttl5.on()
-                self.scan_dds.cpld.io_update.pulse_mu(8)
-             delay(self.scan_time)
-             with parallel:
-                self.scan_dds.sw.off()
-                self.ttl5.off()            
-             delay(delay_time)
-            
-            
-            
-        delay(10*us)
-        self.ttl5.off()            
-        self.ttl0.count(t_end)                  #discard remaining edges and close gate
-        
-
-    
-    @kernel
-    def after_scan(self):
-        self.core.break_realtime()
-        self.core.wait_until_mu(now_mu())
-        delay(100*ms)
-        self.MOTs.AOMs_on(self.MOTs.AOMs)
-        delay(10*ms)
-        self.MOTs.atom_source_on()
-        

@@ -15,7 +15,7 @@ import pyvisa
 from CoolingClass import _Cooling
 from CameraClass import _Camera
 
-from StateControlClass import _STATE_CONTROL
+from StateControlClass import _state_control
 from BraggClass import _Bragg
 from AWG import WaveformGenerator
 from repository.models.scan_models import RamseyPhaseModel as myModel
@@ -33,7 +33,7 @@ class ClockRamseyPhase_exp(Scan1D, EnvExperiment):
         # import classes for experiment control
         self.MOTs = _Cooling(self)
         self.Camera = _Camera(self)
-        self.State_Control = _STATE_CONTROL(self)
+        self.State_Control = _state_control(self)
         self.Bragg = _Bragg(self)
         
         self.rigol=None
