@@ -37,8 +37,6 @@ class ClockRamseyPhase2D_exp(Scan2D, EnvExperiment):
         self.State_Control = _state_control(self)
         self.Bragg = _Bragg(self)
         
-        self.rigol=None
-        self.wg = WaveformGenerator()
         
         self.enable_pausing = True # disable to speed up by not checking scheduler
         self.enable_auto_tracking=False
@@ -175,12 +173,15 @@ class ClockRamseyPhase2D_exp(Scan2D, EnvExperiment):
         self.MOTs.AOMs_off_all()
         self.State_Control.AOMs_off_all()
         delay(1*ms)
-        # self.State_Control.set_AOM_attens([("689", self.State_Control.atten_689),
-        #                                     ("679", self.State_Control.atten_679),
-        #                                     ("688", self.State_Control.atten_688)])
+        
+        # self.State_Control.aom_688.set_att(self.State_Control.atten_688)
+        # self.State_Control.aom_679.set_att(self.State_Control.atten_679)
+        # self.State_Control.aom_689.set_att(self.State_Control.atten_689)
+
         # self.State_Control.set_AOM_freq_689(self.State_Control.freq_689)
         # self.State_Control.set_AOM_freq_688(self.State_Control.freq_688)
         # self.State_Control.set_AOM_freq_679(self.State_Control.freq_679)
+        
         delay(200*ms)
 
         self.set_phases(point)
@@ -203,8 +204,8 @@ class ClockRamseyPhase2D_exp(Scan2D, EnvExperiment):
     
         delay(5*ms)
         if self.free_space:
-            self.Bragg.set_AOM_attens([("Dipole",30.0 )])
-            self.Bragg.AOMs_off(["Lattice"])
+            self.Bragg.aom_dipole.set_att(30.0)
+            self.Bragg.aom_lattice.sw.off()
         
         # -----  3P1 EXCITATION -----------------------
         if self.excited_state=='3P1':
@@ -239,7 +240,7 @@ class ClockRamseyPhase2D_exp(Scan2D, EnvExperiment):
                     self.State_Control.pulse_679(self.pi_timeRaman)
                     self.State_Control.pulse_688(self.pi_timeRaman)
                 # clear cavity
-                self.State_Control.cav_clear_pulse(2.5*ms)
+                self.Bragg.cav_clear_pulse(2.5*ms)
                 
                 # Rabi flop from 3P0
                 with parallel:
@@ -343,8 +344,8 @@ class ClockRamseyPhase2D_exp(Scan2D, EnvExperiment):
             raise Exception('Not Valid State')
 
         
-        self.Bragg.set_AOM_attens([("Dipole",self.Bragg.atten_Dipole)])
-        self.Bragg.AOMs_on(["Lattice"])
+        self.Bragg.aom_dipole.set_att(self.Bragg.atten_Dipole)
+        self.Braggaom_lattice.sw.on()
         # image and reset for next shot
         self.MOTs.take_MOT_image(self.Camera)  
         delay(15*ms)
@@ -380,7 +381,7 @@ class ClockRamseyPhase2D_exp(Scan2D, EnvExperiment):
 
         """
         if scheme == "0":
-            self.State_Control.push_pulse(self.MOTs.Push_pulse_time)            
+            self.Bragg.push_pulse(self.MOTs.Push_pulse_time)            
             self.MOTs.aom_3P0.sw.on()
             self.MOTs.aom_3P2.sw.on()
             delay(self.MOTs.Delay_duration)
@@ -388,9 +389,9 @@ class ClockRamseyPhase2D_exp(Scan2D, EnvExperiment):
             self.MOTs.aom_3P2.sw.off()
 
         elif scheme == "1":
-            self.State_Control.push_pulse(self.MOTs.Push_pulse_time)
+            self.Bragg.push_pulse(self.MOTs.Push_pulse_time)
             delay(200*us)
-            self.State_Control.push_pulse(self.MOTs.Push_pulse_time)
+            self.Bragg.push_pulse(self.MOTs.Push_pulse_time)
             delay(5*us)
             
             self.MOTs.aom_3P0.sw.on()
@@ -401,14 +402,14 @@ class ClockRamseyPhase2D_exp(Scan2D, EnvExperiment):
             
         elif scheme == "2":
             delay(200*us)
-            self.State_Control.push_pulse(self.MOTs.Push_pulse_time)
+            self.Bragg.push_pulse(self.MOTs.Push_pulse_time)
 
             self.MOTs.aom_3P2.sw.on()
             delay(200*us)
             self.MOTs.aom_3P2.sw.off()
             
             delay(200*us)
-            self.State_Control.push_pulse(self.MOTs.Push_pulse_time)
+            self.Bragg.push_pulse(self.MOTs.Push_pulse_time)
             delay(5*us)
             
             self.MOTs.aom_3P0.sw.on()
@@ -423,17 +424,17 @@ class ClockRamseyPhase2D_exp(Scan2D, EnvExperiment):
             
     @kernel
     def raman_pulse(self, time):
-        self.State_Control.AOMs_on(['688'])
+        self.State_Control.aom_688.sw.on()
         delay(0.1*us)
-        self.State_Control.AOMs_on(["679"]) 
+        self.State_Control.aom_679.sw.on()
         
         
         delay(time)
         
         
-        self.State_Control.AOMs_off(['688']) 
+        self.State_Control.aom_688.sw.off()
         delay(0.07*us)
-        self.State_Control.AOMs_off(["679"])
+        self.State_Control.aom_679.sw.on()
                 
     @kernel
     def set_phases(self, point):
@@ -452,7 +453,7 @@ class ClockRamseyPhase2D_exp(Scan2D, EnvExperiment):
 
         self.State_Control.set_AOM_phase(3, self.State_Control.freq_689, 0.0, self.t0, 0)
         self.State_Control.set_AOM_phase(3, self.State_Control.freq_689, point[1], self.t0, 1)
-        #self.State_Control.set_AOM_phase('689', self.State_Control.freq_689,0.0, self.t0, 1)
+
         
         self.State_Control.switch_profile(0)
         

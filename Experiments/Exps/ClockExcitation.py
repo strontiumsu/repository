@@ -17,7 +17,6 @@ from CameraClass import _Camera
 
 from StateControlClass import _state_control
 from BraggClass import _Bragg
-from AWG import WaveformGenerator
 from repository.models.scan_models import AI_Rabi_Model as myModel
 
 
@@ -158,8 +157,8 @@ class ClockExcitation_exp(Scan1D, TimeFreqScan, EnvExperiment):
         delay(5*ms)
         
         if self.free_space:
-            self.Bragg.set_AOM_attens([("Dipole",30.0 )])
-            self.Bragg.AOMs_off(["Lattice"])
+            self.Bragg.aom_dipole.set_att(30.0 )
+            self.Bragg.aom_lattice.sw.off()
         
         delay(100*us)
        
@@ -184,7 +183,7 @@ class ClockExcitation_exp(Scan1D, TimeFreqScan, EnvExperiment):
                     self.State_Control.pulse_679(self.pi_time_Raman)
                     self.State_Control.pulse_688(self.pi_time_Raman)
                 # clear cavity
-                self.State_Control.cav_clear_pulse(2.5*ms)
+                self.Bragg.cav_clear_pulse(2.5*ms)
                 self.ttl5.off()
                 
                 
@@ -211,7 +210,7 @@ class ClockExcitation_exp(Scan1D, TimeFreqScan, EnvExperiment):
                 #         self.State_Control.pulse_679(self.pi_time_Raman)
                 #         self.State_Control.pulse_688(self.pi_time_Raman)
                 #     # clear cavity
-                #     self.State_Control.cav_clear_pulse(100*us)
+                #     self.Bragg.cav_clear_pulse(100*us)
                 #     delay(100*us)
                     
 
@@ -280,8 +279,8 @@ class ClockExcitation_exp(Scan1D, TimeFreqScan, EnvExperiment):
         
         # image and reset for next shot
         self.MOTs.take_MOT_image(self.Camera)  
-        self.Bragg.set_AOM_attens([("Dipole",self.Bragg.atten_Dipole)])
-        self.Bragg.AOMs_on(["Lattice"])
+        self.Bragg.aom_dipole.set_att(self.Bragg.atten_Dipole)
+        self.Bragg.aom_lattice.sw.on()
         delay(15*ms)
         
         self.MOTs.set_current(0.0)
@@ -309,7 +308,7 @@ class ClockExcitation_exp(Scan1D, TimeFreqScan, EnvExperiment):
 
         """
         if scheme == "0":
-            self.State_Control.push_pulse(self.MOTs.Push_pulse_time)            
+            self.Bragg.push_pulse(self.MOTs.Push_pulse_time)            
             self.MOTs.aom_3P0.sw.on()
             self.MOTs.aom_3P2.sw.on()
             delay(self.MOTs.Delay_duration)
@@ -317,9 +316,9 @@ class ClockExcitation_exp(Scan1D, TimeFreqScan, EnvExperiment):
             self.MOTs.aom_3P2.sw.off()
 
         elif scheme == "1":
-            self.State_Control.push_pulse(self.MOTs.Push_pulse_time)
+            self.Bragg.push_pulse(self.MOTs.Push_pulse_time)
             delay(200*us)
-            self.State_Control.push_pulse(self.MOTs.Push_pulse_time)
+            self.Bragg.push_pulse(self.MOTs.Push_pulse_time)
             delay(5*us)
             
             self.MOTs.aom_3P0.sw.on()
@@ -330,14 +329,14 @@ class ClockExcitation_exp(Scan1D, TimeFreqScan, EnvExperiment):
             
         elif scheme == "2":
             delay(200*us)
-            self.State_Control.push_pulse(self.MOTs.Push_pulse_time)
+            self.Bragg.push_pulse(self.MOTs.Push_pulse_time)
 
             self.MOTs.aom_3P2.sw.on()
             delay(200*us)
             self.MOTs.aom_3P2.sw.off()
             
             delay(200*us)
-            self.State_Control.push_pulse(self.MOTs.Push_pulse_time)
+            self.Bragg.push_pulse(self.MOTs.Push_pulse_time)
             delay(5*us)
             
             self.MOTs.aom_3P0.sw.on()

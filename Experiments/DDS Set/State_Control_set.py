@@ -15,11 +15,10 @@ class State_Control_set(EnvExperiment):
     def build(self):
         self.setattr_device("core")
         self.StateControl=_state_control(self)
-        self.setattr_device("ttl5")
-        self.setattr_device("ttl6")
+
         
         self.setattr_argument("ch_689",BooleanValue(False),"Params")
-        self.setattr_argument("ch_Push",BooleanValue(False),"Params")
+        self.setattr_argument("ch_carrier",BooleanValue(False),"Params")
         self.setattr_argument("ch_688",BooleanValue(False),"Params")
         self.setattr_argument("ch_679",BooleanValue(False),"Params")
 
@@ -32,12 +31,9 @@ class State_Control_set(EnvExperiment):
         self.core.reset()
         self.StateControl.init_aoms(on=False)
         
-        if self.ch_688: self.StateControl.urukul_channels[0].sw.on()
-        if self.ch_Push: 
-            self.ttl6.on()
-            self.StateControl.urukul_channels[1].sw.on()
-        if self.ch_679: self.StateControl.urukul_channels[2].sw.on()
-        if self.ch_689: self.StateControl.urukul_channels[3].sw.on()
+        if self.ch_688:     self.StateControl.aom_688.sw.on()
+        if self.ch_carrier: self.StateControl.aom_carrier.sw.on()
+        if self.ch_679:     self.StateControl.aom_679.sw.on()
+        if self.ch_689:     self.StateControl.aom_689.sw.on()
         
-        self.ttl5.pulse(100*us)
-        
+

@@ -108,7 +108,7 @@ class ClockRamseyPhase_exp(Scan1D, EnvExperiment):
         #init AOMs
         self.MOTs.init_aoms(on=False)  
         self.State_Control.init_aoms(on=False)
-        self.Bragg.init_aoms(on=True)
+        self.Bragg.init_aoms(switches=0x9)
         
         delay(10*ms)
         
@@ -120,9 +120,9 @@ class ClockRamseyPhase_exp(Scan1D, EnvExperiment):
         
         # Warm up before exp
         delay(50*ms)
-        # self.MOTs.AOMs_on(['3D', "3P0_repump", "3P2_repump", "3D_red"])
+        # self.MOTs.AOMs_on_all()
         # delay(2000*ms)
-        # self.MOTs.AOMs_off(['3D', "3P0_repump", "3P2_repump", "3D_red"])
+        # self.MOTs.AOMs_off_all()
      
         
   
@@ -160,8 +160,8 @@ class ClockRamseyPhase_exp(Scan1D, EnvExperiment):
                 self.MOTs.set_current(self.B_field)
                 #self.MOTs.set_current(time/(1*us))
                 
-        #self.Bragg.set_AOM_attens([("Dipole",24.0 )]) # Turn off lattice
-        #self.Bragg.AOMs_off(["Lattice"])
+        #self.Bragg.aom_dipole.set_att(24.0) # Turn off lattice
+        #self.Bragg.aom_lattice.sw.off()
         delay(20*us) #??
         
         # experiment
@@ -208,8 +208,8 @@ class ClockRamseyPhase_exp(Scan1D, EnvExperiment):
             raise Exception('Not Valid State')
             
         
-        self.Bragg.set_AOM_attens([("Dipole",self.Bragg.atten_Dipole)]) 
-        self.Bragg.AOMs_on(["Lattice"])    
+        self.Bragg.aom_dipole.set_att(self.Bragg.atten_Dipole) 
+        self.Bragg.aom_lattice.sw.on()    
         
         
         
@@ -223,7 +223,7 @@ class ClockRamseyPhase_exp(Scan1D, EnvExperiment):
         delay(5*ms)  
         
         #process and output
-        self.MOTs.AOMs_on(self.MOTs.AOMs) # just keeps AOMs warm
+        self.MOTs.AOMs_on_all() # just keeps AOMs warm
 
         self.Camera.process_image(save=True, name='', bg_sub=True)
 
@@ -245,33 +245,42 @@ class ClockRamseyPhase_exp(Scan1D, EnvExperiment):
         """
         if scheme == "0":
 
-            self.State_Control.push_pulse(self.MOTs.Push_pulse_time)
+            self.Bragg.push_pulse(self.MOTs.Push_pulse_time)
             delay(self.MOTs.Delay_duration)
 
         elif scheme == "1":
-            self.State_Control.push_pulse(self.MOTs.Push_pulse_time)
+            self.Bragg.push_pulse(self.MOTs.Push_pulse_time)
             delay(200*us)
-            self.State_Control.push_pulse(self.MOTs.Push_pulse_time)
+            self.Bragg.push_pulse(self.MOTs.Push_pulse_time)
             delay(5*us)
             
-            self.MOTs.AOMs_on(['3P0_repump', '3P2_repump'])
+            self.MOTs.aom_3P0.sw.on()
+            self.MOTs.aom_3P2.sw.on()
+            
             delay(self.MOTs.Delay_duration)
-            self.MOTs.AOMs_off(['3P0_repump', '3P2_repump'])
+            
+            self.MOTs.aom_3P0.sw.off()
+            self.MOTs.aom_3P2.sw.off()
+            
         elif scheme == "2":
             delay(200*us)
-            self.State_Control.push_pulse(self.MOTs.Push_pulse_time)
+            self.Bragg.push_pulse(self.MOTs.Push_pulse_time)
             
-            self.MOTs.AOMs_on(['3P2_repump'])
+            self.MOTs.aom_3P2.sw.on()
             delay(200*us)
-            self.MOTs.AOMs_off(['3P2_repump'])
+            self.MOTs.aom_3P2.sw.off()
             
             delay(200*us)
-            self.State_Control.push_pulse(self.MOTs.Push_pulse_time)
+            self.Bragg.push_pulse(self.MOTs.Push_pulse_time)
             delay(5*us)
             
-            self.MOTs.AOMs_on(['3P0_repump', '3P2_repump'])
+            self.MOTs.aom_3P0.sw.on()
+            self.MOTs.aom_3P2.sw.on()
+            
             delay(self.MOTs.Delay_duration)
-            self.MOTs.AOMs_off(['3P0_repump', '3P2_repump'])
+            
+            self.MOTs.aom_3P0.sw.off()
+            self.MOTs.aom_3P2.sw.off()
         else:
             raise Exception("Not a valid readout scheme...")
             
@@ -279,34 +288,34 @@ class ClockRamseyPhase_exp(Scan1D, EnvExperiment):
             
     @kernel
     def raman_pulse(self, time):
-        self.State_Control.AOMs_on(['688'])
+        self.State_Control.aom_688.sw.on()
         delay(0.1*us)
-        self.State_Control.AOMs_on(["679"]) 
+        self.State_Control.aom_679.sw.on() 
         
         
         delay(time)
         
         
-        self.State_Control.AOMs_off(['688']) 
+        self.State_Control.aom_688.sw.off()
         delay(0.07*us)
-        self.State_Control.AOMs_off(["679"])
+        self.State_Control.aom_679.sw.off()
                 
     @kernel
     def set_phases(self, point):
-        self.State_Control.set_AOM_phase('688', self.State_Control.freq_688, 0.0, self.t0, 0)
-        self.State_Control.set_AOM_phase('688', self.State_Control.freq_688, 0.0, self.t0, 1)
+        self.State_Control.set_AOM_phase(0, self.State_Control.freq_688, 0.0, self.t0, 0)
+        self.State_Control.set_AOM_phase(0, self.State_Control.freq_688, 0.0, self.t0, 1)
 
         #
-        self.State_Control.set_AOM_phase('Push', self.State_Control.freq_Push, 0.0, self.t0, 0)
-        self.State_Control.set_AOM_phase('Push', self.State_Control.freq_Push, 0.0, self.t0, 1)
+        self.State_Control.set_AOM_phase(1, self.State_Control.freq_carrier, 0.0, self.t0, 0)
+        self.State_Control.set_AOM_phase(1, self.State_Control.freq_carrier, 0.0, self.t0, 1)
 
 
-        self.State_Control.set_AOM_phase('679', self.State_Control.freq_679, 0.0, self.t0, 0)
-        self.State_Control.set_AOM_phase('679', self.State_Control.freq_679, 0.0, self.t0, 1)
+        self.State_Control.set_AOM_phase(2, self.State_Control.freq_679, 0.0, self.t0, 0)
+        self.State_Control.set_AOM_phase(2, self.State_Control.freq_679, 0.0, self.t0, 1)
 
 
-        self.State_Control.set_AOM_phase('689', self.State_Control.freq_689, 0.0, self.t0, 0)
-        self.State_Control.set_AOM_phase('689', self.State_Control.freq_689, point, self.t0, 1)
+        self.State_Control.set_AOM_phase(3, self.State_Control.freq_689, 0.0, self.t0, 0)
+        self.State_Control.set_AOM_phase(3, self.State_Control.freq_689, point, self.t0, 1)
         
         self.State_Control.switch_profile(0)
         

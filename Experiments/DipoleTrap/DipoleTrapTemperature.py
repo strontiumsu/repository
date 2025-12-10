@@ -119,15 +119,15 @@ class DipoleTrapTemperature_exp(Scan1D, TimeScan, EnvExperiment):
         
         ##################
 
-        self.Bragg.set_AOM_attens([("Dipole",30.0 )])
-        self.Bragg.AOMs_off(["Lattice"])
+        self.Bragg.aom_dipole(30.0)
+        self.Bragg.aom_lattice.sw.off()
 
 
         delay(t_delay)  # drop time
         self.MOTs.take_MOT_image(self.Camera) # image after variable drop time
         
-        self.Bragg.set_AOM_attens([("Dipole",self.Bragg.atten_Dipole)])
-        self.Bragg.AOMs_on(["Lattice"])
+        self.Bragg.aom_dipole.set_att(self.Bragg.atten_Dipole)
+        self.Bragg.aom_lattice.sw.on()
         
 
         delay(10*ms)

@@ -51,7 +51,7 @@ class TTL_Bare_Cavity_Scan(EnvExperiment):
         self.core.break_realtime()
         delay(10 * ms)
 
-        self.scan_dds.set(self.freq_center - self.freq_width/2, amplitude=self.Bragg.scale_Bragg1)
+        self.scan_dds.set(self.freq_center - self.freq_width/2, amplitude=self.Bragg.scale_sideband)
 
         delay(1 * ms)
 

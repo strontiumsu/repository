@@ -13,6 +13,7 @@ from artiq.coredevice import ad9910
 from CoolingClass import _Cooling
 from CameraClass import _Camera
 from BraggClass import _Bragg
+from StateControlClass import _state_control
 from repository.models.scan_models import RabiModel
 
 
@@ -27,6 +28,7 @@ class VRS_sideband_scan_exp(Scan1D, TimeScan, EnvExperiment):
         self.MOTs = _Cooling(self)
         self.Camera = _Camera(self)
         self.Bragg = _Bragg(self)
+        self.State_Control = _state_control(self)
         
         # self.log = [(np.int64(0), np.int64(0))]*5
         # self.ind = 0
@@ -38,7 +40,7 @@ class VRS_sideband_scan_exp(Scan1D, TimeScan, EnvExperiment):
         self.enable_auto_tracking=False
         self.enable_profiling = False # enable to print runtime statistics to find bottlenecks
         
-        self.scan_dds = self.Bragg.urukul_channels[1]
+        self.scan_dds = self.State_Control.aom_carrier
         
         self.scan_arguments(times = {'start':1*1e-6,
             'stop':10*1e-6,
@@ -108,6 +110,7 @@ class VRS_sideband_scan_exp(Scan1D, TimeScan, EnvExperiment):
         self.MOTs.prepare_coils()
         self.Camera.camera_init()
         self.Bragg.prepare_aoms()
+        self.State_Control.prepare_aoms()
         # register model with scan framework
         
         self.enable_histograms = True
@@ -173,6 +176,7 @@ class VRS_sideband_scan_exp(Scan1D, TimeScan, EnvExperiment):
         self.MOTs.init_coils()
         self.MOTs.init_ttls()
         self.MOTs.init_aoms(on=False)
+        self.State_Control.init_aoms(on=False)  
         self.Bragg.init_aoms(switches=0x9)
 
         self.MOTs.set_current_dir(0)
@@ -181,10 +185,10 @@ class VRS_sideband_scan_exp(Scan1D, TimeScan, EnvExperiment):
         delay(100*ms)
         self.MOTs.atom_source_on()
         delay(100*ms)
-        self.MOTs.AOMs_on(['3D', "3P0_repump", "3P2_repump"])
+        self.MOTs.AOMs_on_all()
         delay(200*ms)
 
-        self.MOTs.AOMs_off(['3D', "3P0_repump", "3P2_repump"])
+        self.MOTs.AOMs_off_all()
         self.MOTs.atom_source_off()
         
         self.MOTs.set_current_dir(0)
@@ -204,8 +208,9 @@ class VRS_sideband_scan_exp(Scan1D, TimeScan, EnvExperiment):
         # before this point is just for preparing the RAM and RIGOL
         self.core.break_realtime()
         delay(10*ms)
-        self.Bragg.set_AOM_attens([("Bragg1", self.Bragg.atten_Bragg1)])
-        #self.Bragg.set_AOM_attens([("Bragg1", point/(1*us))])
+        self.scan_dds.set_att(self.State_Control.atten_carrier)
+        self.scan_dds.set_att(point/(1*us))
+  
         
         self.MOTs.init_rmot_dds(self.MOTs.rmot_freq_i, self.MOTs.rmot_freq_f, self.MOTs.rmot_freq_depth_i, self.MOTs.rmot_freq_depth_f, self.MOTs.freq_3D_red)
         delay(10 * ms)
@@ -234,7 +239,7 @@ class VRS_sideband_scan_exp(Scan1D, TimeScan, EnvExperiment):
         delay(400*ms)
         self.core.wait_until_mu(now_mu())
         delay(200*ms)
-        self.MOTs.AOMs_off(['3P0_repump', '3P2_repump', '3D', "3D_red"])
+        self.MOTs.AOMs_off_all()
         delay(300*ms)
 
         self.core.wait_until_mu(now_mu())
@@ -267,8 +272,8 @@ class VRS_sideband_scan_exp(Scan1D, TimeScan, EnvExperiment):
             delay(delay_time)
         
         self.probe_mode(mode=0)
-        self.Bragg.set_probe_freq(self.freq_center)
-        #self.Bragg.set_probe_atten(12.0)
+        self.StateControl.set_AOM_freq(1, self.freq_center)
+        #self.StateControl.aom_carrier.set_att(12.0)
         
         with parallel:
             self.scan_dds.sw.on()
@@ -282,8 +287,9 @@ class VRS_sideband_scan_exp(Scan1D, TimeScan, EnvExperiment):
         delay(delay_time)  
         
         self.probe_mode(mode=1)
-        #self.Bragg.set_probe_freq(self.freq_center)
-        #self.Bragg.set_probe_atten(12.0)
+        # self.StateControl.set_AOM_freq(1, self.freq_center)
+        #self.StateControl.aom_carrier.set_att(12.0)
+ 
 
         with parallel:
             self.scan_dds.sw.on()
@@ -307,7 +313,7 @@ class VRS_sideband_scan_exp(Scan1D, TimeScan, EnvExperiment):
         self.core.break_realtime()
         self.core.wait_until_mu(now_mu())
         delay(100*ms)
-        self.MOTs.AOMs_on(self.MOTs.AOMs)
+        self.MOTs.AOMs_on_all()
         delay(10*ms)
         self.MOTs.atom_source_on()
         

@@ -108,26 +108,26 @@ class DipoleTrapFrequency_exp(Scan1D, TimeScan, EnvExperiment):
         delay(self.load_time)
 
 
-        self.Bragg.set_AOM_attens([("Dipole",30.0 )])
-        self.Bragg.AOMs_off(["Lattice"])
+        self.Bragg.aom_dipole.set_att(30.0)
+        self.Bragg.aom_lattice.sw.off()
 
 
         delay(self.wait_time)  # drop time
         
-        self.Bragg.set_AOM_attens([("Dipole",self.Bragg.atten_Dipole)])
-        #self.Bragg.AOMs_on(["Lattice"])
+        self.Bragg.aom_dipole.set_att(self.Bragg.atten_Dipole)
+        #self.Bragg.aom_lattice.sw.on()
         
         
         delay(t_delay)
         
-        self.Bragg.set_AOM_attens([("Dipole",30.0 )])
-        #self.Bragg.AOMs_off(["Lattice"])
+        self.Bragg.set_AOM_atten(0,30.0)
+        #self.Bragg.aom_lattice.sw.off()
 
 
         delay(self.wait_time)  # drop time
         
-        self.Bragg.set_AOM_attens([("Dipole",self.Bragg.atten_Dipole)])
-        #self.Bragg.AOMs_on(["Lattice"])
+        self.Bragg.aom_dipole.set_att(self.Bragg.atten_Dipole)
+       #self.Bragg.aom_lattice.sw.on()
         
         delay(1*ms)
         
@@ -139,8 +139,8 @@ class DipoleTrapFrequency_exp(Scan1D, TimeScan, EnvExperiment):
         delay(10*ms)
         self.MOTs.AOMs_on_all()
         delay(1*ms)
-        self.Bragg.AOMs_on(["Lattice"])
-        self.Bragg.set_AOM_attens([("Dipole",self.Bragg.atten_Dipole)])
+        self.Bragg.aom_lattice.sw.on()
+        self.Bragg.aom_dipole.set_att(self.Bragg.atten_Dipole)
 
         delay(50*ms)
         self.Camera.process_image(bg_sub=True)

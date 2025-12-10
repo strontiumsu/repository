@@ -180,7 +180,7 @@ class VRS_TTL_calib_exp(Scan1D, TimeScan, EnvExperiment):
         
         self.ttl5.off()
         self.scan_dds.sw.off()
-        self.Bragg.aom_bragg1.set_att(9.0)
+        self.State_Control.aom_carrier.set_att(9.0)
         delay(1*ms)
         self.load_scan()
         step_mu  = self.core.seconds_to_mu(self.step_size * 4*ns)
@@ -211,7 +211,7 @@ class VRS_TTL_calib_exp(Scan1D, TimeScan, EnvExperiment):
                 self.State_Control.pulse_688(self.pi_time_Ramsey)
         
             ##### CLEAR CAVITY AND PREP GROUND ################
-            self.State_Control.cav_clear_pulse(2.5*ms)
+            self.Bragg.cav_clear_pulse(2.5*ms)
 
             with parallel:
                 self.State_Control.pulse_679(self.pi_time_Ramsey)
@@ -242,7 +242,7 @@ class VRS_TTL_calib_exp(Scan1D, TimeScan, EnvExperiment):
         self.ttl5.on()
         with parallel:   
             t_end = self.ttl0.gate_rising(self.scan_time + 2*ms)
-            self.Bragg.aom_bragg2.sw.on()
+            self.State_Control.aom_carrier.sw.on()
             self.scan_dds.sw.on()
             self.scan_dds.cpld.io_update.pulse_mu(8)
 
@@ -257,7 +257,7 @@ class VRS_TTL_calib_exp(Scan1D, TimeScan, EnvExperiment):
             self.ttl5.off()
             delay(5*us)
             self.scan_dds.sw.off()
-            self.Bragg.aom_bragg2.sw.off()
+            self.State_Control.aom_carrier.sw.off()
             
             idx = int((t_edge - t_start) // step_mu)
             delay(100*us)
@@ -318,15 +318,15 @@ class VRS_TTL_calib_exp(Scan1D, TimeScan, EnvExperiment):
         
         if SCAN_MODE == 0:
             with parallel:
-                self.Bragg.aom_bragg1.sw.on()
-                self.Bragg.aom_bragg1.cpld.io_update.pulse_mu(8) 
+                self.Bragg.aom_sideband.sw.on()
+                self.Bragg.aom_sideband.cpld.io_update.pulse_mu(8) 
         else:
-            self.Bragg.aom_bragg1.sw.on()
-            self.Bragg.aom_bragg2.sw.on()
+            self.Bragg.aom_sideband.sw.on()
+            self.State_Control.aom_carrier.sw.on()
             
         delay(time)
-        self.Bragg.aom_bragg1.sw.off()
-        self.Bragg.aom_bragg2.sw.off()
+        self.Bragg.aom_sideband.sw.off()
+        self.State_Control.aom_carrier.sw.off()
         
     
     @kernel
@@ -383,10 +383,10 @@ class VRS_TTL_calib_exp(Scan1D, TimeScan, EnvExperiment):
     def load_profiles(self, freq, probe_atten=0.8):
         self.Bragg.aom_dipole.set(frequency=self.Bragg.freq_Dipole, phase=0.0, phase_mode=PHASE_MODE_TRACKING, ref_time_mu=self.t0, profile=0)
         self.Bragg.aom_lattice.set(frequency=self.Bragg.freq_Lattice, phase=0.0, phase_mode=PHASE_MODE_TRACKING, ref_time_mu=self.t0, profile=0)
-        self.Bragg.aom_bragg1.set(frequency=self.Bragg.freq_Bragg1, phase=0.0, phase_mode=PHASE_MODE_TRACKING, ref_time_mu=self.t0, profile=0)
-        self.Bragg.aom_bragg2.set(frequency=2*self.Bragg.freq_Bragg1, phase=0.0, phase_mode=PHASE_MODE_TRACKING, ref_time_mu=self.t0, profile=0)
+        self.Bragg.aom_sideband.set(frequency=self.Bragg.freq_Sideband, phase=0.0, phase_mode=PHASE_MODE_TRACKING, ref_time_mu=self.t0, profile=0)
+        self.Bragg.aom_push.set(frequency=2*self.Bragg.freq_Push, phase=0.0, phase_mode=PHASE_MODE_TRACKING, ref_time_mu=self.t0, profile=0)
         
         self.Bragg.aom_dipole.set(frequency=self.Bragg.freq_Dipole, phase=0.0, phase_mode=PHASE_MODE_TRACKING, ref_time_mu=self.t0, profile=1)
         self.Bragg.aom_lattice.set(frequency=self.Bragg.freq_Lattice, phase=0.0, phase_mode=PHASE_MODE_TRACKING, ref_time_mu=self.t0, profile=1)
-        self.Bragg.aom_bragg1.set(frequency=freq, phase=0.0, phase_mode=PHASE_MODE_TRACKING, ref_time_mu=self.t0, profile=1)
-        self.Bragg.aom_bragg2.set(frequency=2*freq, phase=0.0, phase_mode=PHASE_MODE_TRACKING, ref_time_mu=self.t0, profile=1)
+        self.Bragg.aom_sideband.set(frequency=freq, phase=0.0, phase_mode=PHASE_MODE_TRACKING, ref_time_mu=self.t0, profile=1)
+        self.Bragg.aom_push.set(frequency=2*freq, phase=0.0, phase_mode=PHASE_MODE_TRACKING, ref_time_mu=self.t0, profile=1)

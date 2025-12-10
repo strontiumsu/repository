@@ -13,6 +13,7 @@ from artiq.coredevice import ad9910
 
 from CoolingClass import _Cooling
 from BraggClass import _Bragg
+from StateControlClass import _state_control
 
 
 import time
@@ -27,6 +28,7 @@ class CavityAlignment_exp(Scan1D, EnvExperiment):
         # import classes for experiment control
         self.MOTs = _Cooling(self)
         self.Bragg = _Bragg(self)
+        self.State_Control = _state_control(self)
 
         self.enable_auto_tracking=False
 
@@ -93,6 +95,7 @@ class CavityAlignment_exp(Scan1D, EnvExperiment):
         self.MOTs.prepare_aoms()
         self.MOTs.prepare_coils()
         self.Bragg.prepare_aoms()
+        self.State_Control.prepare_aoms()
 
         # self.model = LinearModel()
         # self.register_model(self.model, measurement=False, fit=True)
@@ -112,7 +115,7 @@ class CavityAlignment_exp(Scan1D, EnvExperiment):
         self.core.break_realtime()
         delay(10 * ms)
 
-        dds.set(self.freq_center - self.freq_width/2, amplitude=self.Bragg.scale_Bragg1)
+        dds.set(self.freq_center - self.freq_width/2, amplitude=self.Bragg.scale_sideband)
 
         delay(1 * ms)
 
@@ -147,6 +150,7 @@ class CavityAlignment_exp(Scan1D, EnvExperiment):
         self.MOTs.init_ttls()
         self.MOTs.init_aoms(on=False)
         self.Bragg.init_aoms()
+        self.State_Control.init_aoms(on=False)
         
         self.MOTs.set_current_dir(0)
         delay(10*ms)
@@ -171,7 +175,7 @@ class CavityAlignment_exp(Scan1D, EnvExperiment):
         delay(50*ms)
 
         delay(1 * ms)
-        self.MOTs.set_AOM_attens([("3D", self.MOTs.atten_3D)])
+        self.MOTs.set_AOM_atten(0, self.MOTs.atten_3D)
         delay(10 * ms)
     
         self.MOTs.AOMs_off_all() # ensure AOMs are off
@@ -203,7 +207,7 @@ class CavityAlignment_exp(Scan1D, EnvExperiment):
                 
             delay(80*ms)
         
-        self.Bragg.AOMs_on(["Bragg2"]) # turn on probe light
+        self.StateControl.aom_carrier.sw.on() # turn on probe light
         with parallel:
             self.scan_dds.sw.on()
             self.ttl5.on()
@@ -212,7 +216,7 @@ class CavityAlignment_exp(Scan1D, EnvExperiment):
         with parallel:
             self.scan_dds.sw.off()
             self.ttl5.off()            
-        self.Bragg.AOMs_off(["Bragg2"])
+        self.StateControl.aom_carrier.sw.off()
 
         
         

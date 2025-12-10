@@ -15,7 +15,7 @@ from BraggClass import _Bragg
 from repository.models.scan_models import RabiModel
 
 
-class bare_cavity_duak_scan_exp(Scan1D, EnvExperiment):
+class bare_cavity_dual_scan_exp(Scan1D, EnvExperiment):
     
     def build(self, **kwargs):
         
@@ -96,7 +96,8 @@ class bare_cavity_duak_scan_exp(Scan1D, EnvExperiment):
 
 
         self.Bragg.init_aoms(on=True)
-        self.Bragg.AOMs_off(["Bragg1", "Bragg2"])  
+        self.Bragg.aom_sideband.sw.off()
+        self.Bragg.aom_carrier.sw.off()
         delay(100*ms)
 
         
@@ -111,7 +112,7 @@ class bare_cavity_duak_scan_exp(Scan1D, EnvExperiment):
         # before this point is just for preparing the RAM and RIGOL
         self.core.break_realtime()
         delay(10*ms)
-        self.Bragg.set_AOM_attens([("Bragg1", self.Bragg.atten_Bragg1)])      
+        self.Bragg.set_AOM_atten(1, self.Bragg.atten_sideband)      
         delay(10 * ms)
 
         self.run_exp()
@@ -127,13 +128,13 @@ class bare_cavity_duak_scan_exp(Scan1D, EnvExperiment):
                         
         self.ttl5.on()
         
-        self.Bragg.AOMs_on(["Bragg1"])
+        self.Bragg.self.aom_sideband.sw.on()
         delay(self.probe_time)
-        self.Bragg.AOMs_off(["Bragg1"])
+        self.Bragg.aom_sideband.sw.off()
         delay(self.delay_time)
-        self.Bragg.AOMs_on(["Bragg1"])
+        self.Bragg.aom_sideband.sw.on()
         delay(self.probe_time)
-        self.Bragg.AOMs_off(["Bragg1"])
+        self.Bragg.aom_sideband.sw.off()
         
         self.ttl5.off()
             

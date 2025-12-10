@@ -160,8 +160,8 @@ class TTL_VRS(Scan1D, TimeScan, EnvExperiment):
         
         
         delay(1*ms)
-        self.Bragg.aom_bragg1.set(frequency=self.freq_center_trigg-self.freq_width_trigg/2, amplitude=0.8)
-        self.Bragg.aom_bragg2.set(frequency=self.freq_center_meas, amplitude=0.8)
+        self.Bragg.aom_sideband.set(frequency=self.freq_center_trigg-self.freq_width_trigg/2, amplitude=0.8)
+        self.Bragg.aom_push.set(frequency=self.freq_center_meas, amplitude=0.8)
         delay(1*ms)
         self.load_scan(self.scan_dds_trigg, self.freq_center_trigg, self.freq_width_trigg, self.scan_time_trigg)
         self.load_scan(self.scan_dds_meas, self.freq_center_meas, self.freq_width_meas, self.scan_time_meas)
@@ -169,9 +169,9 @@ class TTL_VRS(Scan1D, TimeScan, EnvExperiment):
         self.scan_dds_trigg.set_cfr1(internal_profile=0, ram_enable=1, ram_destination=ad9910.RAM_DEST_FTW)
         delay(10*ms)
         
-        self.scan_dds_trigg.set_att(self.Bragg.atten_Bragg1)
-        self.scan_dds_meas.set_att(self.Bragg.atten_Bragg2)  
-        self.Bragg.aom_bragg2.set(frequency=self.freq_center_meas, amplitude=0.8)
+        self.scan_dds_trigg.set_att(self.Bragg.atten_sideband)
+        self.scan_dds_meas.set_att(self.Bragg.atten_push)  
+        self.Bragg.aom_push.set(frequency=self.freq_center_meas, amplitude=0.8)
         delay(1*ms)
                 
         

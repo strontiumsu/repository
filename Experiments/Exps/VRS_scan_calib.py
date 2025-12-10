@@ -64,7 +64,7 @@ class VRS_scan_calib_exp(Scan1D, EnvExperiment):
         self.freq_list= np.linspace(0.0*MHz, 0.0*MHz, 1024)
         self.freq_list_ram = np.full(1024, 1)
         self.step_size=0
-        self.scan_dds = self.Bragg.urukul_channels[1]
+        self.scan_dds = self.State_Control.urukul_channels[1]
         
 
     def get_scan_points(self):
@@ -137,11 +137,11 @@ class VRS_scan_calib_exp(Scan1D, EnvExperiment):
         self.State_Control.aom_689.set(frequency=self.State_Control.freq_689, amplitude=0.8)
         self.State_Control.aom_688.set(frequency=self.State_Control.freq_688, amplitude=0.8)
         self.State_Control.aom_679.set(frequency=self.State_Control.freq_679, amplitude=0.8)
+        self.State_Control.aom_carrier.set_att(self.State_Control.atten_PCarrier)
         
         delay(1*ms)
         
-        self.Bragg.aom_bragg1.set_att(self.Bragg.atten_Bragg1)
-        self.Bragg.aom_bragg2.set_att(self.Bragg.atten_Bragg2)
+        self.Bragg.aom_sideband.set_att(self.Bragg.atten_PSideband)
         self.MOTs.aom_3D_blue.set_att(self.MOTs.atten_3D)
         delay(1*ms)
         
@@ -182,7 +182,7 @@ class VRS_scan_calib_exp(Scan1D, EnvExperiment):
                 self.State_Control.pulse_688(self.pi_time_Ramsey)
         
             ##### CLEAR CAVITY AND PREP GROUND ################
-            self.State_Control.cav_clear_pulse(2.5*ms)
+            self.Bragg.cav_clear_pulse(2.5*ms)
 
             with parallel:
                 self.State_Control.pulse_679(self.pi_time_Ramsey)
@@ -195,11 +195,11 @@ class VRS_scan_calib_exp(Scan1D, EnvExperiment):
             self.MOTs.aom_3P2.sw.off()
 
             ##### REMEASURE VRS ################
-            # for i in range(60):
+            # for i in range(40):
             #     self.ttl5.on()
             #     self.scan_probe(self.scan_time)
             #     self.ttl5.off()
-                # delay(10*us)
+            #     delay(10*us)
             self.scan_probe(self.scan_time)
 
         
@@ -207,8 +207,8 @@ class VRS_scan_calib_exp(Scan1D, EnvExperiment):
         ##### BARE CAVITY CALIB / IMAGE ################
         if self.Calibrate:
             with parallel:
-                self.Bragg.aom_bragg1.set_att(17.0)
-                self.State_Control.cav_clear_pulse(2.5*ms) 
+                self.State_Control.aom_carrier.set_att(17.0)
+                self.Bragg.cav_clear_pulse(2.5*ms) 
             self.scan_probe(self.scan_time)
         elif self.Image:
             #self.readout(scheme="0")
@@ -245,7 +245,7 @@ class VRS_scan_calib_exp(Scan1D, EnvExperiment):
     def scan_probe(self, time):
         with parallel:
             self.scan_dds.sw.on()
-            self.Bragg.urukul_channels[2].sw.on()
+            self.Bragg.urukul_channels[1].sw.on()
             self.ttl5.on()
             self.scan_dds.cpld.io_update.pulse_mu(8)
             
@@ -253,7 +253,7 @@ class VRS_scan_calib_exp(Scan1D, EnvExperiment):
         
         with parallel:
             self.scan_dds.sw.off()
-            self.Bragg.urukul_channels[2].sw.off()
+            self.Bragg.urukul_channels[1].sw.off()
             self.ttl5.off()
         
     
@@ -301,7 +301,7 @@ class VRS_scan_calib_exp(Scan1D, EnvExperiment):
 
         """
         if scheme == "0":
-            self.State_Control.push_pulse(self.MOTs.Push_pulse_time)            
+            self.Bragg.push_pulse(self.MOTs.Push_pulse_time)            
             self.MOTs.aom_3P0.sw.on()
             self.MOTs.aom_3P2.sw.on()
             delay(self.MOTs.Delay_duration)
@@ -309,9 +309,9 @@ class VRS_scan_calib_exp(Scan1D, EnvExperiment):
             self.MOTs.aom_3P2.sw.off()
 
         elif scheme == "1":
-            self.State_Control.push_pulse(self.MOTs.Push_pulse_time)
+            self.Bragg.push_pulse(self.MOTs.Push_pulse_time)
             delay(200*us)
-            self.State_Control.push_pulse(self.MOTs.Push_pulse_time)
+            self.Bragg.push_pulse(self.MOTs.Push_pulse_time)
             delay(5*us)
             
             self.MOTs.aom_3P0.sw.on()
@@ -322,14 +322,14 @@ class VRS_scan_calib_exp(Scan1D, EnvExperiment):
             
         elif scheme == "2":
             delay(200*us)
-            self.State_Control.push_pulse(self.MOTs.Push_pulse_time)
+            self.Bragg.push_pulse(self.MOTs.Push_pulse_time)
 
             self.MOTs.aom_3P2.sw.on()
             delay(200*us)
             self.MOTs.aom_3P2.sw.off()
             
             delay(200*us)
-            self.State_Control.push_pulse(self.MOTs.Push_pulse_time)
+            self.Bragg.push_pulse(self.MOTs.Push_pulse_time)
             delay(5*us)
             
             self.MOTs.aom_3P0.sw.on()

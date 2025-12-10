@@ -164,9 +164,15 @@ class bare_cavity_scan_exp(Scan1D, EnvExperiment):
 
 
         self.Bragg.init_aoms(on=True)
-        self.Bragg.AOMs_off(["Bragg1", "Bragg2"])  
+        self.Bragg.aom_sideband.sw.off()
+        self.Bragg.aom_push.sw.off()
+        
+
         delay(1*ms)
-        self.Bragg.set_AOM_attens([("Bragg1", self.Bragg.atten_Bragg1), ("Bragg2", self.Bragg.atten_Bragg2)])      
+        
+        
+        self.Bragg.set_AOM_atten(1, self.Bragg.atten_sideband)  
+        self.Bragg.set_AOM_atten(1, self.Bragg.atten_push)  
         delay(100*ms)
 
         
@@ -183,7 +189,8 @@ class bare_cavity_scan_exp(Scan1D, EnvExperiment):
         # before this point is just for preparing the RAM and RIGOL
         self.core.break_realtime()
         delay(10*ms)
-        self.Bragg.set_AOM_attens([("Bragg1", self.Bragg.atten_Bragg1), ("Bragg2", self.Bragg.atten_Bragg2)])      
+        self.Bragg.set_AOM_atten(1, self.Bragg.atten_sideband)  
+        self.Bragg.set_AOM_atten(1, self.Bragg.atten_push)       
         delay(10 * ms)
 
 
@@ -205,7 +212,7 @@ class bare_cavity_scan_exp(Scan1D, EnvExperiment):
     
     @kernel
     def run_exp(self, pspace):
-        self.Bragg.AOMs_on(["Bragg2"])
+        self.Bragg.aom_push.sw.on()
         self.scan_dds.sw.on()
 
         delay(1*ms)
@@ -232,6 +239,6 @@ class bare_cavity_scan_exp(Scan1D, EnvExperiment):
 
         delay(1*ms)
         self.scan_dds.sw.off()
-        self.Bragg.AOMs_off(["Bragg2"])  
+        self.Bragg.aom_push.sw.off()
         
     

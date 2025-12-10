@@ -40,7 +40,7 @@ class ClockRabiVRS_exp(Scan1D, TimeFreqScan, EnvExperiment):
         self.enable_auto_tracking=False
         self.enable_profiling = False # enable to print runtime statistics to find bottlenecks
         
-        self.scan_dds = self.Bragg.urukul_channels[1]
+        self.scan_dds = self.State_Control.urukul_channels[1]
 
         self.scan_arguments(times = {'start':0*us,
             'stop':1.5*us,
@@ -249,7 +249,7 @@ class ClockRabiVRS_exp(Scan1D, TimeFreqScan, EnvExperiment):
         # experiment
         if self.pre_measurement:
         # -----  Measure VRS with all atoms -----------------------
-            self.Bragg.AOMs_on(["Bragg2"])
+            self.Bragg.aom_sideband.sw.on()
             with parallel:
                 self.scan_dds.sw.on()
                 self.ttl5.on()
@@ -258,7 +258,7 @@ class ClockRabiVRS_exp(Scan1D, TimeFreqScan, EnvExperiment):
             with parallel:
                 self.scan_dds.sw.off()
                 self.ttl5.off()
-            self.Bragg.AOMs_off(["Bragg2"])
+            self.Bragg.aom_sideband.sw.off()
         
         # # -----  Excitation -----------------------
         # self.ttl5.off()
@@ -271,7 +271,7 @@ class ClockRabiVRS_exp(Scan1D, TimeFreqScan, EnvExperiment):
         #         self.State_Control.pulse_679(self.pi_time_Ramsey)
         #         self.State_Control.pulse_688(self.pi_time_Ramsey)
         #     # clear cavity
-        #     self.State_Control.cav_clear_pulse(1000*us)
+        #     self.Bragg.cav_clear_pulse(1000*us)
         #     delay(1000*us)
             
         #     # # Rabi flop from 3P0
@@ -299,7 +299,7 @@ class ClockRabiVRS_exp(Scan1D, TimeFreqScan, EnvExperiment):
         # self.MOTs.aom_3P0.sw.off()
         # self.MOTs.aom_3P2.sw.off()
         # #-----  Measure VRS with after excitation -----------------------
-        # self.Bragg.AOMs_on(["Bragg2"])
+        # self.Bragg.aom_sideband.sw.on()
         # with parallel:
         #     self.scan_dds.sw.on()
         #     self.ttl5.on()
@@ -308,7 +308,7 @@ class ClockRabiVRS_exp(Scan1D, TimeFreqScan, EnvExperiment):
         # with parallel:
         #     self.scan_dds.sw.off()
         #     self.ttl5.off()
-        # self.Bragg.AOMs_off(["Bragg2"])
+        # self.Bragg.aom_sideband.sw.off()
         
         self.MOTs.aom_3P0.sw.on()
         self.MOTs.aom_3P2.sw.on()
@@ -317,9 +317,9 @@ class ClockRabiVRS_exp(Scan1D, TimeFreqScan, EnvExperiment):
         self.MOTs.aom_3P2.sw.off()
     
         
-        self.State_Control.cav_clear_pulse(1000*us)
+        self.Bragg.cav_clear_pulse(1000*us)
         delay(1000*us)
-        self.Bragg.AOMs_on(["Bragg2"])
+        self.Bragg.aom_sideband.sw.on()
         with parallel:
             self.scan_dds.sw.on()
             self.ttl5.on()
@@ -328,7 +328,7 @@ class ClockRabiVRS_exp(Scan1D, TimeFreqScan, EnvExperiment):
         with parallel:
             self.scan_dds.sw.off()
             self.ttl5.off()
-        self.Bragg.AOMs_off(["Bragg2"])
+        self.Bragg.aom_sideband.sw.off()
         
         self.readout(scheme=self.readout_scheme)
                 
@@ -365,7 +365,7 @@ class ClockRabiVRS_exp(Scan1D, TimeFreqScan, EnvExperiment):
         """
         if scheme == "0":
             #delay(200*us)
-            self.State_Control.push_pulse(self.MOTs.Push_pulse_time)
+            self.Bragg.push_pulse(self.MOTs.Push_pulse_time)
             self.MOTs.aom_3P0.sw.on()
             self.MOTs.aom_3P2.sw.on()
             delay(self.MOTs.Delay_duration)
@@ -373,9 +373,9 @@ class ClockRabiVRS_exp(Scan1D, TimeFreqScan, EnvExperiment):
             self.MOTs.aom_3P2.sw.off()
 
         elif scheme == "1":
-            self.State_Control.push_pulse(self.MOTs.Push_pulse_time)
+            self.Bragg.push_pulse(self.MOTs.Push_pulse_time)
             delay(200*us)
-            self.State_Control.push_pulse(self.MOTs.Push_pulse_time)
+            self.Bragg.push_pulse(self.MOTs.Push_pulse_time)
             delay(5*us)
             
             self.MOTs.aom_3P0.sw.on()
@@ -386,19 +386,21 @@ class ClockRabiVRS_exp(Scan1D, TimeFreqScan, EnvExperiment):
             
         elif scheme == "2":
             delay(200*us)
-            self.State_Control.push_pulse(self.MOTs.Push_pulse_time)
+            self.Bragg.push_pulse(self.MOTs.Push_pulse_time)
             
-            self.MOTs.AOMs_on(['3P2_repump'])
+            self.MOTs.aom_3P2.sw.on()
             delay(200*us)
-            self.MOTs.AOMs_off(['3P2_repump'])
+            self.MOTs.aom_3P2.sw.off()
             
             delay(200*us)
-            self.State_Control.push_pulse(self.MOTs.Push_pulse_time)
+            self.Bragg.push_pulse(self.MOTs.Push_pulse_time)
             delay(5*us)
             
-            self.MOTs.AOMs_on(['3P0_repump', '3P2_repump'])
+            self.MOTs.aom_3P2.sw.on()
+            self.MOTs.aom_3P0.sw.on()
             delay(self.MOTs.Delay_duration)
-            self.MOTs.AOMs_off(['3P0_repump', '3P2_repump'])
+            self.MOTs.aom_3P2.sw.on()
+            self.MOTs.aom_3P0.sw.on()
         else:
             raise Exception("Not a valid readout scheme...")
             
@@ -406,16 +408,16 @@ class ClockRabiVRS_exp(Scan1D, TimeFreqScan, EnvExperiment):
             
     @kernel
     def raman_pulse(self, time):
-        self.State_Control.AOMs_on(['688'])
+        self.State_Control.aom_688.sw.on()
         delay(0.1*us)
-        self.State_Control.AOMs_on(["679"]) 
+        self.State_Control.aom_679.sw.on()
         
         
         delay(time)
         
         
-        self.State_Control.AOMs_off(['688']) 
+        self.State_Control.aom_688.sw.off()
         delay(0.07*us)
-        self.State_Control.AOMs_off(["679"])
+        self.State_Control.aom_679.sw.off()
                 
   
