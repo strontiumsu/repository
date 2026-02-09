@@ -20,7 +20,7 @@ from BraggClass import _Bragg
 from repository.models.scan_models import AI_Rabi_Model as myModel
 
 
-class ClockExcitation_exp(Scan1D, TimeFreqScan, EnvExperiment):
+class ClockExcitation_Cav_exp(Scan1D, TimeFreqScan, EnvExperiment):
     
     def build(self, **kwargs):
         # required initializations
@@ -58,6 +58,18 @@ class ClockExcitation_exp(Scan1D, TimeFreqScan, EnvExperiment):
         self.setattr_argument("B_field", NumberValue(0.36,min=0.0,max=2,scale=1,
                       unit="V", ndecimals=3),"Params")
         
+        
+        # VRS Scan args
+        self.setattr_argument("freq_center", NumberValue( 3*1e6,min=0.1*1e6, max=200.0*1e6,scale=1e6, unit="MHz",ndecimals = 3),"parameters")
+        self.setattr_argument("freq_width", NumberValue( 1*1e6,min=-10*1e6, max=50.0*1e6,scale=1e6, unit="MHz",ndecimals = 3),"parameters")     
+        self.setattr_argument("scan_time", NumberValue( 100*1e-6,min=1*1e-6, max=100000.0*1e-6,scale=1e-6, unit="us",ndecimals = 3),"parameters")
+        self.setattr_argument("Scan_Ch", EnumerationValue(["Carrier", "Sideband"], default='Carrier'), "parameters")
+        
+        # Prep DDS scan
+        self.freq_list= np.linspace(0.0*MHz, 0.0*MHz, 1024)
+        self.freq_list_ram = np.full(1024, 1)
+        self.step_size=0
+        self.scan_dds = self.Bragg.aom_carrier
         
         
     def prepare(self):
@@ -186,6 +198,34 @@ class ClockExcitation_exp(Scan1D, TimeFreqScan, EnvExperiment):
                 # clear cavity
                 self.State_Control.cav_clear_pulse(2.5*ms)
                 self.ttl5.off()
+                
+                
+                
+                ### Repeated lasing
+                # for i in range(10):
+                #     delay(5*us)
+                #     self.ttl5.on()
+                #     self.MOTs.aom_3P2.sw.on()
+                #     self.MOTs.aom_3P0.sw.on()
+                #     delay(10*us)
+                #     self.MOTs.aom_3P2.sw.off()
+                #     self.MOTs.aom_3P0.sw.off()
+                #     with parallel:
+                #         self.State_Control.pulse_679(self.pi_time_Raman)
+                #         self.State_Control.pulse_688(self.pi_time_Raman)
+                #     delay(50*us)
+
+                #     self.ttl5.off()       # for triggering start
+                #     # prepare in 3P0
+                #     self.State_Control.pulse_689(self.pi_time_689)
+                #     delay(0.15*us)
+                #     with parallel:
+                #         self.State_Control.pulse_679(self.pi_time_Raman)
+                #         self.State_Control.pulse_688(self.pi_time_Raman)
+                #     # clear cavity
+                #     self.State_Control.cav_clear_pulse(100*us)
+                #     delay(100*us)
+                    
 
                 ### Rabi flop from 3P0
                 with parallel: # Raman pulse
@@ -194,7 +234,25 @@ class ClockExcitation_exp(Scan1D, TimeFreqScan, EnvExperiment):
                 delay(0.3*us)
                 self.State_Control.pulse_689(self.pi_time_689)
                 delay(200*us) # let 3P1 decay to 1S0
-
+                
+                ### Cheap Ramsey time scan
+                # with parallel: # Raman pulse
+                #     self.State_Control.pulse_679(0.374*us)
+                #     self.State_Control.pulse_688(0.374*us)
+                # delay(0.3*us)
+                # self.State_Control.pulse_689(self.pi_time_689)
+                
+                # delay(time)
+                
+                # self.State_Control.pulse_689(self.pi_time_689)
+                # delay(0.15*us)
+                # with parallel:
+                #     self.State_Control.pulse_679(0.374*us)
+                #     self.State_Control.pulse_688(0.374*us)
+                # delay(200*us) # let 3P1 decay to 1S0
+                
+            
+                
             else:    
                 
                 self.ttl5.on()       # for triggering start
@@ -204,23 +262,50 @@ class ClockExcitation_exp(Scan1D, TimeFreqScan, EnvExperiment):
                     self.State_Control.pulse_679(time)
                     self.State_Control.pulse_688(time)
                 
-                ############## Ramsey
+                ############## Ramsey with Echo
                 
                 # self.ttl5.on()       # for triggering start
                 
-                # self.State_Control.pulse_689(self.pi_time_689)
+                # self.State_Control.pulse_689(self.pi_time_689/2)
                 # delay(0.15*us)
                 # with parallel:
                 #     self.State_Control.pulse_688(self.pi_time_Raman)
                 #     self.State_Control.pulse_679(self.pi_time_Raman)
                     
-                # delay(100*us)
+                # delay(25*us)
+                # ### Procedure 2
+                # # with parallel:
+                # #     self.State_Control.pulse_688(self.pi_time_Raman)
+                # #     self.State_Control.pulse_679(self.pi_time_Raman)
+                # # delay(0.35*us)
+                # # self.State_Control.pulse_689(self.pi_time_689)
+                # # delay(0.15*us)
+                # # with parallel:
+                # #     self.State_Control.pulse_688(self.pi_time_Raman)
+                # #     self.State_Control.pulse_679(self.pi_time_Raman)
+                    
+                # #delay(time)
                 # with parallel:
                 #     self.State_Control.pulse_688(self.pi_time_Raman)
                 #     self.State_Control.pulse_679(self.pi_time_Raman)
                 # delay(0.35*us)
-                # self.State_Control.pulse_689(self.pi_time_689)
-
+                # self.State_Control.pulse_689(self.pi_time_689/2)
+            
+                # # delay(2*ms)
+                # # self.ttl5.on()       # for triggering start
+                # # self.State_Control.pulse_689(self.pi_time_689/2)
+                # # delay(0.15*us)
+                # # with parallel:
+                # #     self.State_Control.pulse_679(self.pi_time_Raman)
+                # #     self.State_Control.pulse_688(self.pi_time_Raman)
+                    
+                # # delay(time)
+                
+                # # with parallel:
+                # #     self.State_Control.pulse_679(self.pi_time_Raman)
+                # #     self.State_Control.pulse_688(self.pi_time_Raman)
+                # # delay(0.35*us)
+                # # self.State_Control.pulse_689(self.pi_time_689/2)
                 
             
             self.ttl5.off()

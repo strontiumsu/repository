@@ -16,7 +16,6 @@ from CoolingClass import _Cooling
 from CameraClass import _Camera
 
 from BraggClass import _Bragg
-from AWG import WaveformGenerator
 from repository.models.scan_models import AI_Rabi_Model as myModel
 
 

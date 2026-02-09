@@ -18,7 +18,7 @@ class State_Control_set(EnvExperiment):
 
         
         self.setattr_argument("ch_689",BooleanValue(False),"Params")
-        self.setattr_argument("ch_carrier",BooleanValue(False),"Params")
+        self.setattr_argument("ch_push",BooleanValue(False),"Params")
         self.setattr_argument("ch_688",BooleanValue(False),"Params")
         self.setattr_argument("ch_679",BooleanValue(False),"Params")
 
@@ -32,7 +32,7 @@ class State_Control_set(EnvExperiment):
         self.StateControl.init_aoms(on=False)
         
         if self.ch_688:     self.StateControl.aom_688.sw.on()
-        if self.ch_carrier: self.StateControl.aom_carrier.sw.on()
+        if self.ch_push:    self.StateControl.aom_push.sw.on()
         if self.ch_679:     self.StateControl.aom_679.sw.on()
         if self.ch_689:     self.StateControl.aom_689.sw.on()
         

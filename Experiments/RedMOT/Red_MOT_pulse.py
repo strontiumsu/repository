@@ -82,6 +82,8 @@ class Red_MOT_pulse_exp(EnvExperiment):
             #self.MOTs.rMOT_pulse(sf=False)
             # generate red mot
             self.MOTs.close_688() # close 688 shutter to prevent leakage from optical pumping
+            delay(10*ms)
+            self.MOTs.open_repumpers() #TTL to 679 repumper shutter 
             self.MOTs.rMOT_pulse_new()
             self.MOTs.open_688() # open shutter after 689 rMOT light turns off to be prepare for Raman pulse
             delay(self.wait_time)

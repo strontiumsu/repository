@@ -17,7 +17,7 @@ from CameraClass import _Camera
 
 from StateControlClass import _state_control
 from BraggClass import _Bragg
-from AWG import WaveformGenerator
+
 from repository.models.scan_models import RamseyPhaseModel
 from repository.models.scan_models import RamseyDecayModel
 
@@ -116,7 +116,7 @@ class ClockRamseyPhase2D_exp(Scan2D, EnvExperiment):
         
         self.MOTs.prepare_coils()
         
-        self.Camera.camera_init(scheme = 1)
+        self.Camera.camera_init(scheme = 0)
         
         
         self.enable_histograms = True
@@ -164,6 +164,7 @@ class ClockRamseyPhase2D_exp(Scan2D, EnvExperiment):
         self.core.wait_until_mu(now_mu())
         self.core.reset()
         
+
         self.MOTs.init_rmot_dds(self.MOTs.rmot_freq_i, self.MOTs.rmot_freq_f,  self.MOTs.rmot_freq_depth_i, self.MOTs.rmot_freq_depth_f, self.MOTs.freq_3D_red)
 
         delay(1*ms)
@@ -171,17 +172,7 @@ class ClockRamseyPhase2D_exp(Scan2D, EnvExperiment):
         delay(10*ms)
 
         self.MOTs.AOMs_off_all()
-        self.State_Control.AOMs_off_all()
-        delay(1*ms)
-        
-        # self.State_Control.aom_688.set_att(self.State_Control.atten_688)
-        # self.State_Control.aom_679.set_att(self.State_Control.atten_679)
-        # self.State_Control.aom_689.set_att(self.State_Control.atten_689)
-
-        # self.State_Control.set_AOM_freq_689(self.State_Control.freq_689)
-        # self.State_Control.set_AOM_freq_688(self.State_Control.freq_688)
-        # self.State_Control.set_AOM_freq_679(self.State_Control.freq_679)
-        
+        self.State_Control.AOMs_off_all()               
         delay(200*ms)
 
         self.set_phases(point)
@@ -189,8 +180,11 @@ class ClockRamseyPhase2D_exp(Scan2D, EnvExperiment):
         
         # generate red mot
         self.MOTs.close_688() # close 688 shutter to prevent leakage from optical pumping
+        delay(10*ms)
+
         self.MOTs.rMOT_pulse_new()
         self.MOTs.open_688() # open shutter after 689 rMOT light turns off to be prepare for Raman pulse
+        
         if self.MOTs.molasses:
                with parallel:
                    self.MOTs.set_current_dir(1) 
@@ -199,13 +193,16 @@ class ClockRamseyPhase2D_exp(Scan2D, EnvExperiment):
             with parallel:
                 delay(self.dipole_load_time) # Needs to by >~ 40 ms for cavity shaking to stop.
                 self.MOTs.set_current_dir(1) # let MOT field go to zero and switch H-bridge, 5ms
+        
+        self.MOTs.Blackman_ramp(0.0, self.B_field, 20*ms) # set bias field so 3P1 m=+1 is ~40MHz separated.    
+        delay(5*ms) # extra time for field to settle
+            
 
-        self.MOTs.Blackman_ramp(0.0, self.B_field, 20*ms) # set bias field so 3P1 m=+1 is ~40MHz separated.
-    
-        delay(5*ms)
         if self.free_space:
             self.Bragg.aom_dipole.set_att(30.0)
             self.Bragg.aom_lattice.sw.off()
+        
+        delay(100*us)
         
         # -----  3P1 EXCITATION -----------------------
         if self.excited_state=='3P1':
@@ -227,7 +224,7 @@ class ClockRamseyPhase2D_exp(Scan2D, EnvExperiment):
 
             
 
-
+        
 
         # -----  3P0 EXCITATION -----------------------
         elif self.excited_state=='3P0':
@@ -240,7 +237,7 @@ class ClockRamseyPhase2D_exp(Scan2D, EnvExperiment):
                     self.State_Control.pulse_679(self.pi_timeRaman)
                     self.State_Control.pulse_688(self.pi_timeRaman)
                 # clear cavity
-                self.Bragg.cav_clear_pulse(2.5*ms)
+                self.State_Control.cav_clear_pulse(2.5*ms)
                 
                 # Rabi flop from 3P0
                 with parallel:
@@ -334,7 +331,7 @@ class ClockRamseyPhase2D_exp(Scan2D, EnvExperiment):
             
             
             self.ttl5.off()
-            
+
             self.readout(scheme=self.readout_scheme)
        
                 
@@ -345,7 +342,7 @@ class ClockRamseyPhase2D_exp(Scan2D, EnvExperiment):
 
         
         self.Bragg.aom_dipole.set_att(self.Bragg.atten_Dipole)
-        self.Braggaom_lattice.sw.on()
+        self.Bragg.aom_lattice.sw.on()
         # image and reset for next shot
         self.MOTs.take_MOT_image(self.Camera)  
         delay(15*ms)
@@ -381,7 +378,7 @@ class ClockRamseyPhase2D_exp(Scan2D, EnvExperiment):
 
         """
         if scheme == "0":
-            self.Bragg.push_pulse(self.MOTs.Push_pulse_time)            
+            self.State_Control.push_pulse(self.MOTs.Push_pulse_time)            
             self.MOTs.aom_3P0.sw.on()
             self.MOTs.aom_3P2.sw.on()
             delay(self.MOTs.Delay_duration)
@@ -389,9 +386,9 @@ class ClockRamseyPhase2D_exp(Scan2D, EnvExperiment):
             self.MOTs.aom_3P2.sw.off()
 
         elif scheme == "1":
-            self.Bragg.push_pulse(self.MOTs.Push_pulse_time)
+            self.State_Control.push_pulse(self.MOTs.Push_pulse_time)
             delay(200*us)
-            self.Bragg.push_pulse(self.MOTs.Push_pulse_time)
+            self.State_Control.push_pulse(self.MOTs.Push_pulse_time)
             delay(5*us)
             
             self.MOTs.aom_3P0.sw.on()
@@ -400,16 +397,16 @@ class ClockRamseyPhase2D_exp(Scan2D, EnvExperiment):
             self.MOTs.aom_3P0.sw.off()
             self.MOTs.aom_3P2.sw.off()
             
-        elif scheme == "2":
+        elif scheme == "2": #readout with 3P2 port
             delay(200*us)
-            self.Bragg.push_pulse(self.MOTs.Push_pulse_time)
+            self.State_Control.push_pulse(self.MOTs.Push_pulse_time)
 
             self.MOTs.aom_3P2.sw.on()
             delay(200*us)
             self.MOTs.aom_3P2.sw.off()
             
             delay(200*us)
-            self.Bragg.push_pulse(self.MOTs.Push_pulse_time)
+            self.State_Control.push_pulse(self.MOTs.Push_pulse_time)
             delay(5*us)
             
             self.MOTs.aom_3P0.sw.on()
@@ -417,6 +414,17 @@ class ClockRamseyPhase2D_exp(Scan2D, EnvExperiment):
             delay(self.MOTs.Delay_duration)
             self.MOTs.aom_3P0.sw.off()
             self.MOTs.aom_3P2.sw.off()
+            
+        elif scheme == "3": #readout without repumpers
+            self.State_Control.push_pulse(self.MOTs.Push_pulse_time)
+            delay(10*us)
+            with parallel:
+                    self.State_Control.pulse_688(self.pi_timeRaman)
+                    self.State_Control.pulse_679(self.pi_timeRaman)
+
+            delay(200*us)
+            
+            delay(self.MOTs.Delay_duration)
         else:
             raise Exception("Not a valid readout scheme...")
             

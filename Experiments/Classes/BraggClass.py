@@ -19,19 +19,19 @@ class _Bragg(EnvExperiment):
     def build(self):
         self.setattr_device("core")
         self.setattr_device("urukul2_cpld")
-        self.setattr_device("ttl6") # for opening cavity clear channel
+        
 
 
 
         # names for all our AOMs
-        self.AOMs = ["Dipole", 'PSideband', 'Push', "Lattice"]
+        self.AOMs = ["Dipole", 'Sideband', 'Carrier', "Lattice"]
 
 
 
         # default values for all params for all AOMs
         self.scales = [0.8, 0.8, 0.8, 0.8]
         self.attens = [12.0, 9.0, 6.0, 3.0]
-        self.freqs = [80.0, 3.0, 102.5, 80.0]
+        self.freqs = [80.0, 3.0, 80.0, 80.0]
 
 
         self.urukul_channels = [self.get_device("urukul2_ch0"),
@@ -41,7 +41,7 @@ class _Bragg(EnvExperiment):
         
         self.aom_dipole = self.urukul_channels[0]
         self.aom_sideband = self.urukul_channels[1]
-        self.aom_push = self.urukul_channels[2]
+        self.aom_carrier = self.urukul_channels[2]
         self.aom_lattice = self.urukul_channels[3]
 
         # setting attributes to controll all AOMs
@@ -53,9 +53,9 @@ class _Bragg(EnvExperiment):
 
 
     def prepare_aoms(self):
-        self.scales = [self.scale_Dipole, self.scale_PSideband, self.scale_Push, self.scale_Lattice]
-        self.attens = [self.atten_Dipole, self.atten_PSideband, self.atten_Push, self.atten_Lattice]
-        self.freqs = [self.freq_Dipole, self.freq_PSideband, self.freq_Push, self.freq_Lattice]
+        self.scales = [self.scale_Dipole, self.scale_Sideband, self.scale_Carrier, self.scale_Lattice]
+        self.attens = [self.atten_Dipole, self.atten_Sideband, self.atten_Carrier, self.atten_Lattice]
+        self.freqs = [self.freq_Dipole, self.freq_Sideband, self.freq_Carrier, self.freq_Lattice]
 
     @kernel
     def init_aoms(self, switches=0x9):
@@ -71,9 +71,9 @@ class _Bragg(EnvExperiment):
                 ch.sw.off()               
             ch.set_att(self.attens[i])
             ch.set(self.freqs[i], 0.0, self.scales[i])
-            delay(0.1*ms)
+            delay(1*ms)
 
-        delay(0.1*ms)
+        delay(1*ms)
         
         
     # basic AOM methods
@@ -137,26 +137,7 @@ class _Bragg(EnvExperiment):
             delay(dt)
         self.atten[3] = end
 
-    @kernel
-    def pulse_push(self, t):
-        self.ttl6.on() #switches to drive cavity clear aom
-        self.pulse(t, 1, 0.0)
-        self.ttl6.off()
-        
-        
-    @kernel 
-    def push_pulse(self,t):
-        self.ttl6.off()
-        self.aom_push.sw.on()
-        delay(t)
-        self.aom_push.sw.off()
-        
-    @kernel 
-    def cav_clear_pulse(self,t):
-        self.ttl6.on() #switches to drive cavity clear aom
-        self.aom_push.sw.on()
-        delay(t)
-        self.aom_push.sw.off()
-        self.ttl6.off()
+
+    
 
 

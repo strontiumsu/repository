@@ -282,6 +282,16 @@ class _Cooling(EnvExperiment):
     @kernel 
     def close_688(self):
         self.dac_set(3, 0.0)
+        
+    @kernel 
+    def open_repumpers(self):
+        delay(-3.4*ms)
+        self.dac_set(4, 4.0)
+        delay(3.4*ms)
+        
+    @kernel 
+    def close_repumpers(self):
+        self.dac_set(4, 0.0)
 
     # switches between MOT configs
     @kernel
@@ -407,7 +417,7 @@ class _Cooling(EnvExperiment):
         self.aom_3D_red.set_cfr1(ram_enable=0)
         self.aom_3D_red.cpld.io_update.pulse_mu(8)
         
-        #freq_list_ram=self.get_dataset('frequencylistram')
+
         
         # write in  nprofiles worth of RAM split over 1022 RAM entries
         flength = int(1022/self.nprofiles)
@@ -472,6 +482,34 @@ class _Cooling(EnvExperiment):
         self.aom_3P0.sw.off()
         self.aom_3P2.sw.off()
         self.atom_source_off()
+        
+    @kernel
+    def bMOT_pulse_shield(self, shield_freq = 180.6*MHz, shield_scale=0.8):
+        self.atom_source_on()
+        # turn on 3D, and repumps
+        self.aom_3D_blue.sw.on()
+        self.aom_3P0.sw.on()
+        self.aom_3P2.sw.on()
+        
+        self.aom_3D_red.set_att(self.atten_3D_red)
+        self.aom_3D_red.set(frequency=shield_freq, amplitude=shield_scale)
+        
+        self.Blackman_ramp_up()
+        self.hold(self.bmot_load_duration)
+        
+        self.aom_3D_red.sw.on()
+        self.hold(self.bmot_load_duration)
+        self.aom_3D_red.sw.off()
+        
+        # turn on 3D, and repumps
+        # self.aom_3D_blue.sw.off()
+        # self.aom_3P0.sw.off()
+        # self.aom_3P2.sw.off()
+        # self.atom_source_off()
+        
+        # self.set_current(0.0)
+        
+        
 
     @kernel
     def bMOT_load(self):
@@ -569,13 +607,12 @@ class _Cooling(EnvExperiment):
 
         
     @kernel 
-    def rMOT_pulse_new2(self, sf=False, atten_scale_factor=2.2):
+    def rMOT_pulse_shield(self, sf=False, shield_freq = 180.6*MHz, shield_scale=0.8):
         self.atom_source_on() # opens on zeeman and 2D shutters
         self.aom_3D_blue.set_att(self.atten_3D)
         self.aom_3D_red.set_att(self.atten_3D_red)
-        self.aom_3D_red.set_amplitude(0.8)
 
-        self.urukul1_cpld.set_profile(0)
+        self.aom_3D_red.set(frequency=shield_freq, amplitude=shield_scale)
 
         
         # turn on 3D, and repumps
@@ -583,22 +620,20 @@ class _Cooling(EnvExperiment):
         self.aom_3P0.sw.on()
         self.aom_3P2.sw.on()
         
+        
         # turn to MOT mode
         self.set_current_dir(0)
         
         #ramp up bmot bfield and hold for load duration
         self.Blackman_ramp(0.0, self.bmot_current, self.bmot_ramp_duration)
         delay(self.bmot_load_duration)
-        
+        self.aom_3D_red.sw.on()
+        delay(self.bmot_load_duration)
         
        # line trigger for consistent time relative to mains
         self.line_trigger()
         delay(150*ms)
         
-        # turn on broad band red mot (profile 0)
-        self.aom_3D_red.cpld.io_update.pulse_mu(8)
-        delay(5*us)
-        self.aom_3D_red.sw.on()
         
         # ramp up blue MOT current and attenuation
         tramp = 50*ms
@@ -609,7 +644,16 @@ class _Cooling(EnvExperiment):
             self.dac_set(0,  self.bmot_current + binc/tramp*step*dt)
             self.aom_3D_blue.set_att(6+24*step/int(self.Npoints))
             delay(dt)
-
+        
+        self.aom_3D_red.sw.off()
+        self.aom_3D_red.set_amplitude(0.8)
+        
+        # turn on broad band red mot (profile 0)
+        self.urukul1_cpld.set_profile(0)
+        self.aom_3D_red.cpld.io_update.pulse_mu(8)
+        delay(5*us)
+        self.aom_3D_red.sw.on()
+        
         # turn off blue light
         self.atom_source_off()
         self.aom_3D_blue.sw.off()
@@ -617,16 +661,13 @@ class _Cooling(EnvExperiment):
         
         # ramp up to broad band red mot current and hold
         self.Blackman_ramp(self.bmot_current + binc, self.rmot_bb_current, 40*ms)
-        #self.set_current(self.rmot_bb_current)
         delay(self.rmot_bb_duration)
         
         # turn off repumpers
         self.aom_3P0.sw.off()
         self.aom_3P2.sw.off()
         
-        #atten_scale_factor = 2.2
-        
-        #self.linear_ramp(self.rmot_bb_current, self.rmot_sf_current, self.rmot_ramp_duration, self.Npoints)
+        atten_scale_factor = 2.67
         with parallel:
             self.linear_ramp(self.rmot_bb_current, self.rmot_sf_current, self.rmot_ramp_duration, self.Npoints)
             with sequential:
@@ -648,13 +689,7 @@ class _Cooling(EnvExperiment):
         self.aom_3D_red.sw.off()
 
         self.urukul1_cpld.set_profile(0)
-        
-        # ramp current down
-        # if sf:
-        #     self.Blackman_ramp(self.rmot_sf_current, 0.0, 10*ms)
-        # else:
-        #    self.set_current(0.0)
-            
+
         self.Blackman_ramp(self.rmot_sf_current, 0.0, 20*ms)
         
         
@@ -805,17 +840,4 @@ class _Cooling(EnvExperiment):
         self.aom_3P2.sw.off()
 
 
-    def index_artiq(self, aom) -> TInt32:
-        for i in range(len(self.AOMs)):
-            if self.AOMs[i] == aom:
-                return i
-        raise Exception("No AOM with that name")
 
-
-    
-    def index_artiq(self, aom) -> TInt32:
-        raise Exception("Get rid of AOM indexing functions")
-        for i in range(len(self.AOMs)):
-            if self.AOMs[i] == aom:
-                return i
-        raise Exception("No AOM with that name")

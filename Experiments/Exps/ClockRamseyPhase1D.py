@@ -17,7 +17,6 @@ from CameraClass import _Camera
 
 from StateControlClass import _state_control
 from BraggClass import _Bragg
-from AWG import WaveformGenerator
 from repository.models.scan_models import RamseyPhaseModel as myModel
 
 
@@ -35,9 +34,6 @@ class ClockRamseyPhase_exp(Scan1D, EnvExperiment):
         self.Camera = _Camera(self)
         self.State_Control = _state_control(self)
         self.Bragg = _Bragg(self)
-        
-        self.rigol=None
-        self.wg = WaveformGenerator()
         
         self.enable_pausing = True # disable to speed up by not checking scheduler
         self.enable_auto_tracking=False
@@ -245,13 +241,13 @@ class ClockRamseyPhase_exp(Scan1D, EnvExperiment):
         """
         if scheme == "0":
 
-            self.Bragg.push_pulse(self.MOTs.Push_pulse_time)
+            self.State_Control.push_pulse(self.MOTs.Push_pulse_time)
             delay(self.MOTs.Delay_duration)
 
         elif scheme == "1":
-            self.Bragg.push_pulse(self.MOTs.Push_pulse_time)
+            self.State_Control.push_pulse(self.MOTs.Push_pulse_time)
             delay(200*us)
-            self.Bragg.push_pulse(self.MOTs.Push_pulse_time)
+            self.State_Control.push_pulse(self.MOTs.Push_pulse_time)
             delay(5*us)
             
             self.MOTs.aom_3P0.sw.on()
@@ -264,14 +260,14 @@ class ClockRamseyPhase_exp(Scan1D, EnvExperiment):
             
         elif scheme == "2":
             delay(200*us)
-            self.Bragg.push_pulse(self.MOTs.Push_pulse_time)
+            self.State_Control.push_pulse(self.MOTs.Push_pulse_time)
             
             self.MOTs.aom_3P2.sw.on()
             delay(200*us)
             self.MOTs.aom_3P2.sw.off()
             
             delay(200*us)
-            self.Bragg.push_pulse(self.MOTs.Push_pulse_time)
+            self.State_Control.push_pulse(self.MOTs.Push_pulse_time)
             delay(5*us)
             
             self.MOTs.aom_3P0.sw.on()
@@ -306,8 +302,8 @@ class ClockRamseyPhase_exp(Scan1D, EnvExperiment):
         self.State_Control.set_AOM_phase(0, self.State_Control.freq_688, 0.0, self.t0, 1)
 
         #
-        self.State_Control.set_AOM_phase(1, self.State_Control.freq_carrier, 0.0, self.t0, 0)
-        self.State_Control.set_AOM_phase(1, self.State_Control.freq_carrier, 0.0, self.t0, 1)
+        self.State_Control.set_AOM_phase(1, self.State_Control.freq_Push, 0.0, self.t0, 0)
+        self.State_Control.set_AOM_phase(1, self.State_Control.freq_Push, 0.0, self.t0, 1)
 
 
         self.State_Control.set_AOM_phase(2, self.State_Control.freq_679, 0.0, self.t0, 0)

@@ -33,7 +33,7 @@ class bare_cavity_scan_exp(Scan1D, EnvExperiment):
         self.enable_auto_tracking=False
         self.enable_profiling = False # enable to print runtime statistics to find bottlenecks
         
-        self.scan_dds = self.Bragg.urukul_channels[1]
+        self.scan_dds = self.Bragg.urukul_channels[2]
         
         # Arguments 
         
@@ -87,7 +87,7 @@ class bare_cavity_scan_exp(Scan1D, EnvExperiment):
                               NumberValue(
                                   1.0,
                                   min=0.1,
-                                  max=5.0,
+                                  max=20.0,
                                   scale=1e0,
                                   unit='s'),
                               "parameters")
@@ -129,7 +129,7 @@ class bare_cavity_scan_exp(Scan1D, EnvExperiment):
         self.core.break_realtime()
         delay(10 * ms)
 
-        self.scan_dds.set(self.freq_center - self.freq_width/2, amplitude=self.Bragg.scale_Bragg1)
+        self.scan_dds.set(self.freq_center - self.freq_width/2, amplitude=self.Bragg.scale_Carrier)
 
         delay(1 * ms)
 
@@ -163,16 +163,16 @@ class bare_cavity_scan_exp(Scan1D, EnvExperiment):
         self.ttl5.off()
 
 
-        self.Bragg.init_aoms(on=True)
+        self.Bragg.init_aoms(switches=0x9)
         self.Bragg.aom_sideband.sw.off()
-        self.Bragg.aom_push.sw.off()
+        self.Bragg.aom_carrier.sw.off()
         
 
         delay(1*ms)
         
         
-        self.Bragg.set_AOM_atten(1, self.Bragg.atten_sideband)  
-        self.Bragg.set_AOM_atten(1, self.Bragg.atten_push)  
+        self.Bragg.aom_sideband.set_att(self.Bragg.atten_Sideband)  
+        self.Bragg.aom_carrier.set_att(self.Bragg.atten_Carrier)  
         delay(100*ms)
 
         
@@ -189,8 +189,8 @@ class bare_cavity_scan_exp(Scan1D, EnvExperiment):
         # before this point is just for preparing the RAM and RIGOL
         self.core.break_realtime()
         delay(10*ms)
-        self.Bragg.set_AOM_atten(1, self.Bragg.atten_sideband)  
-        self.Bragg.set_AOM_atten(1, self.Bragg.atten_push)       
+        self.Bragg.aom_sideband.set_att(self.Bragg.atten_Sideband)  
+        self.Bragg.aom_carrier.set_att(self.Bragg.atten_Carrier)      
         delay(10 * ms)
 
 
@@ -199,10 +199,15 @@ class bare_cavity_scan_exp(Scan1D, EnvExperiment):
         self.run_exp(point)
         
 
+        self.scan_dds.set(self.freq_center, amplitude=self.Bragg.scale_Carrier)
+        self.scan_dds.sw.on()
+        self.Bragg.aom_sideband.sw.on()
         
         #resets scan to prepapre for next scan
-        self.scan_dds.set_cfr1(ram_enable=0)
-        self.scan_dds.cpld.io_update.pulse_mu(8)
+        #self.scan_dds.set_cfr1(ram_enable=0)
+        #self.scan_dds.cpld.io_update.pulse_mu(8)
+        
+        
         
         # simulate experiment shot rate
         delay(self.pause_time)
@@ -212,11 +217,10 @@ class bare_cavity_scan_exp(Scan1D, EnvExperiment):
     
     @kernel
     def run_exp(self, pspace):
-        self.Bragg.aom_push.sw.on()
+        self.Bragg.aom_sideband.sw.on()
         self.scan_dds.sw.on()
 
         delay(1*ms)
-
         
         for _ in range(int(self.pulses)):
             
@@ -236,9 +240,36 @@ class bare_cavity_scan_exp(Scan1D, EnvExperiment):
                 self.ttl5.off()      
 
             delay(pspace)
+            
+        # self.freeze_RAM(self.scan_dds, 0, 1023, 1*self.scan_time)
+        # self.ttl5.on()
+        # delay(1*self.scan_time)
+        # self.ttl5.off()
 
         delay(1*ms)
-        self.scan_dds.sw.off()
-        self.Bragg.aom_push.sw.off()
+       
+        
+        
+    
+    @kernel
+    def freeze_RAM(self, dds, start_idx, end_idx, scan_time):
+        """
+        Modify the trigger DDS RAM so that profile 0 consists of a single
+        index (idx), effectively "freezing" the DDS at the frequency
+        corresponding to the detection time.
+
+        This is called after pulse 1, before pulse 2.
+        """
+        step_size = int(scan_time/(1024*4*ns))
+
+
+        dds.set_profile_ram(
+            start=start_idx,
+            end=end_idx,
+            step=(step_size | (2**6 - 1) << 16),
+            profile=0,
+            mode=ad9910.RAM_MODE_RAMPUP
+        )
+        dds.cpld.io_update.pulse_mu(8)
         
     

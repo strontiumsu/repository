@@ -17,11 +17,12 @@ class _state_control(EnvExperiment):
     def build(self):
         self.setattr_device("core")
         self.setattr_device("urukul0_cpld")
+        self.setattr_device("ttl6") # for opening cavity clear channel
         
         
 
         # names for all our AOMs
-        self.AOMs = ["688", 'PCarrier', '679', "689"]
+        self.AOMs = ["688", 'Push', '679', "689"]
 
 
         # default values for all params for all AOMs
@@ -29,7 +30,7 @@ class _state_control(EnvExperiment):
 
         self.attens = [8.0, 6.0, 10.0, 8.0]
 
-        self.freqs = [80.0, 80.0, 200.0, 220.0]
+        self.freqs = [80.0, 102.5, 200.0, 220.0]
 
         self.urukul_channels = [self.get_device("urukul0_ch0"),
                                 self.get_device("urukul0_ch1"), 
@@ -37,7 +38,7 @@ class _state_control(EnvExperiment):
                                 self.get_device("urukul0_ch3")]
         
         self.aom_688 = self.urukul_channels[0]
-        self.aom_carrier = self.urukul_channels[1]
+        self.aom_push = self.urukul_channels[1]
         self.aom_679 = self.urukul_channels[2]
         self.aom_689 = self.urukul_channels[3]
 
@@ -50,9 +51,9 @@ class _state_control(EnvExperiment):
 
 
     def prepare_aoms(self):
-        self.scales = [self.scale_688, self.scale_PCarrier, self.scale_679, self.scale_689]
-        self.attens = [self.atten_688, self.atten_PCarrier, self.atten_679, self.atten_689]
-        self.freqs = [self.freq_688, self.freq_PCarrier, self.freq_679, self.freq_689]
+        self.scales = [self.scale_688, self.scale_Push, self.scale_679, self.scale_689]
+        self.attens = [self.atten_688, self.atten_Push, self.atten_679, self.atten_689]
+        self.freqs = [self.freq_688, self.freq_Push, self.freq_679, self.freq_689]
 
     @kernel
     def init_aoms(self, on=False):
@@ -184,12 +185,22 @@ class _state_control(EnvExperiment):
     
     
     @kernel
-    def pulse(self, dds, t, d=0.0):
+    def pulse(self, dds, t, d):
         dds.sw.on()
         delay(t+d)
         dds.sw.off()
         
 
+    @kernel 
+    def push_pulse(self,t):        
+        self.ttl6.off()
+        self.pulse(self.aom_push, t, 0.0)
+        
+    @kernel 
+    def cav_clear_pulse(self,t):
+        self.ttl6.on() #switches to drive cavity clear aom
+        self.pulse(self.aom_push, t, 0.0)
+        self.ttl6.off()
 
 
 

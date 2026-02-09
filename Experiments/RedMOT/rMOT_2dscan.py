@@ -106,36 +106,24 @@ class Red_MOT_pulse_2Dscan_exp(Scan2D, EnvExperiment):
         self.Camera.arm()
         delay(500*ms)  
 
-        self.MOTs.init_rmot_dds(self.MOTs.rmot_freq_i, self.MOTs.rmot_freq_f,  self.MOTs.rmot_freq_depth_i, self.MOTs.rmot_freq_depth_f, self.MOTs.freq_3D_red)
+        #self.MOTs.init_rmot_dds(self.MOTs.rmot_freq_i, self.MOTs.rmot_freq_f,  self.MOTs.rmot_freq_depth_i, self.MOTs.rmot_freq_depth_f, self.MOTs.freq_3D_red)
         delay(1*ms)
 
-          
-        self.MOTs.rMOT_pulse_new(sf=False)
+        self.MOTs.bMOT_pulse_shield(shield_freq = freq, shield_scale= amp)
+        #self.MOTs.rMOT_pulse_shield(sf=False, shield_freq = freq, shield_scale= amp)
         
-        with parallel:
-            delay(self.dipole_load_time)
-            self.MOTs.set_current_dir(1) 
-            self.MOTs.molasses_pulse(freq, amp, self.dipole_load_time)
-            # with sequential:
-            #     ### MOLASSES ##
-                
-            #     self.MOTs.aom_3D_red.set_cfr1(ram_enable=0)
-            #     self.MOTs.aom_3D_red.cpld.io_update.pulse_mu(8)
-            #     self.MOTs.aom_3D_red.set(frequency=freq, amplitude=amp) # change rMOT beams to be constant frequency
-            #     self.MOTs.aom_3D_red.sw.on()
-            #     self.ttl5.on()
-            #     delay(self.dipole_load_time)
-            #     self.MOTs.aom_3D_red.sw.off()
-            #     self.ttl5.off()
-        
+        #with parallel:
+        #delay(self.dipole_load_time)
+        #self.MOTs.set_current_dir(1) 
+        #self.MOTs.molasses_pulse(freq, amp, self.dipole_load_time)
+
+        delay(1*ms)
         
         self.MOTs.take_MOT_image(self.Camera)
         delay(10*ms)
         self.Camera.process_image(bg_sub=True)
-        delay(300*ms)
+        delay(500*ms)
         self.core.wait_until_mu(now_mu())
-        delay(200*ms)
-        self.MOTs.AOMs_off_all()
         delay(50*ms)
 
         

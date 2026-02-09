@@ -112,7 +112,7 @@ class bare_cavity_dual_scan_exp(Scan1D, EnvExperiment):
         # before this point is just for preparing the RAM and RIGOL
         self.core.break_realtime()
         delay(10*ms)
-        self.Bragg.set_AOM_atten(1, self.Bragg.atten_sideband)      
+        self.Bragg.aom_sideband.set_att(self.Bragg.atten_Sideband)      
         delay(10 * ms)
 
         self.run_exp()

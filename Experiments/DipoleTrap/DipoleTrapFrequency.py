@@ -120,7 +120,7 @@ class DipoleTrapFrequency_exp(Scan1D, TimeScan, EnvExperiment):
         
         delay(t_delay)
         
-        self.Bragg.set_AOM_atten(0,30.0)
+        self.Bragg.aom_dipole.set_att(30.0)
         #self.Bragg.aom_lattice.sw.off()
 
 

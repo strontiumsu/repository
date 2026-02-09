@@ -76,7 +76,7 @@ class DipoleTrapTemperature_exp(Scan1D, TimeScan, EnvExperiment):
         self.core.reset()
         self.MOTs.init_coils()
         self.MOTs.init_aoms(on=False)  # initializes whiling keeping them off
-        self.Bragg.init_aoms(switches=0x9)
+        self.Bragg.init_aoms()
 
         delay(10*ms)
 
@@ -116,14 +116,17 @@ class DipoleTrapTemperature_exp(Scan1D, TimeScan, EnvExperiment):
         else:
             delay(self.load_time)
 
-        
+        self.MOTs.Blackman_ramp(0.0, 0.362, 20*ms) # set bias field so 3P1 m=+1 is ~40MHz separated.    
+        delay(8*ms)
         ##################
 
-        self.Bragg.aom_dipole(30.0)
+
+        delay(t_delay) # wait and hold data
+        self.Bragg.aom_dipole.set_att(30.0)
         self.Bragg.aom_lattice.sw.off()
 
 
-        delay(t_delay)  # drop time
+        delay(5*ms)  # drop time
         self.MOTs.take_MOT_image(self.Camera) # image after variable drop time
         
         self.Bragg.aom_dipole.set_att(self.Bragg.atten_Dipole)
@@ -136,7 +139,8 @@ class DipoleTrapTemperature_exp(Scan1D, TimeScan, EnvExperiment):
         delay(50*ms)
         self.Camera.process_image(bg_sub=True)
         delay(400*ms)
-        
+        self.MOTs.set_current_dir(0)
+        delay(100*ms)
         #return self.Camera.get_totalcount_stats_port2()
         # if self.plot_direction == 'X':
         #     return self.Camera.process_gaussian(3)

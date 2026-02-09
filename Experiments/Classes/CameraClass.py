@@ -115,6 +115,7 @@ class _Camera(EnvExperiment):
         self.cam.set_gain(self.Hardware_Gain)
         #self.cam.set_roi(1200,1400,1000,1000) ###USED for 3-photon 689
         
+        #self.cam.set_roi(1250,1425,1000,1000)
         self.cam.set_roi(1250,1425,400,300)
         self.cam_range = (50,-40, 30,-10)
         self.cam.get_all_images() ## clears buffer
