@@ -103,7 +103,9 @@ class BlueMOTLoading_exp(Scan1D, TimeScan, EnvExperiment):
             self.MOTs.bMOT_load()
             self.MOTs.atom_source_off()
             delay(t_delay)
-            self.MOTs.take_image_exp(self.Camera)
+
+            self.Camera.trigger_camera()
+            delay(self.Camera.Exposure_Time)
 
             self.MOTs.AOMs_off_all()
             self.MOTs.Blackman_ramp_down()
@@ -133,7 +135,8 @@ class BlueMOTLoading_exp(Scan1D, TimeScan, EnvExperiment):
     
             delay(t_delay)
             
-            self.MOTs.take_image_exp(self.Camera)
+            self.Camera.trigger_camera()
+            delay(self.Camera.Exposure_Time)
             
             self.MOTs.atom_source_off()
             delay(5*ms)

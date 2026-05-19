@@ -5,13 +5,14 @@ Created on Thu Feb  2 12:41:16 2023
 @author: E. Porter
 """
 
-from artiq.experiment import delay, NumberValue, ms, kernel, EnvExperiment, TInt32, BooleanValue
+from artiq.experiment import delay, NumberValue, ms, kernel, EnvExperiment, TInt32, BooleanValue, rpc
 import numpy as np
 from scipy.optimize import curve_fit
 from scipy.signal import medfilt
 from scipy.ndimage import gaussian_filter
 import matplotlib.pyplot as plt
 from PIL import Image
+import time
    
 
 class _Camera(EnvExperiment):
@@ -30,8 +31,6 @@ class _Camera(EnvExperiment):
         self.setattr_device("ttl4")         # Camera hardware trigger
         self.cam=self.get_device("camera") # Thorlabs camera
         
-        
-        # 
         self.setattr_argument("Exposure_Time",NumberValue(0.5*1e-3,min=0.5e-3,max=100*1e-3,scale=1e-3,
                       unit="ms"),"Detection")        
         self.setattr_argument("Hardware_Gain",NumberValue(150,min=0,max=350,scale=1
@@ -45,77 +44,29 @@ class _Camera(EnvExperiment):
         self.current_image = np.zeros((self.xsize, self.ysize)) 
         self.background_image = np.zeros((self.xsize, self.ysize)) 
         
+        
     def prep_datasets(self,x):
         self.set_dataset("detection.counts",x, broadcast=True)    
-        
-    # def camera_init(self):
-    #     # set camera settings
-    #     if self.get_is_armed(): self.disarm()
-    #     self.cam.set_exposure(self.Exposure_Time)
-    #     self.cam.set_gain(self.Hardware_Gain)
-    #     #self.cam.set_roi(1200,1400,1000,1000) ###USED for 3-photon 689
-        
-    #     self.cam.set_roi(1250,1425,400,300)
-    #     self.cam_range = (50,-40, 30,-10)
-    #     self.cam.get_all_images() ## clears buffer
 
-    #     # for data analysis
-    #     self.pix2um = 67.8
-    #     X, Y = np.meshgrid(np.arange(0, self.ysize, 1), np.arange(0, self.xsize, 1))
-    #     self.xdata = np.vstack((X.ravel(), Y.ravel()))
-        
-    #     self.ind = 0
+    @rpc 
+    def camera_init(self, N=2, scheme=0):
+        """Initializes camera settings and parameters for data 
+        analysis. Also sets up some parameters for display and 
+        analysis of images.
+        scheme: sets parameters for display and analysis of 
+        images. 0 is for 689 horizontal push, 1 is for 689 
+        horizontal double push, 2 is for 689 vertical push, 3 
+        is for Bragg spectroscopy. 
 
-    #     #mot ranges horizontal push
-    #     self.y1 = 200
-    #     self.y2 = 600
+        arms the camera at the end of initialization.
+        """
+        
 
-    #     self.x1 = 5
-    #     self.x2 = 50
-    #     self.x3 = 500
-        
-    #     # # 689 horizontal push
-    #     self.ycen = 140
-    #     self.xcen = 230
-    #     self.xydev =100
-    #     self.xdev1 = 100
-    #     self.xdev2 = 60
-    #     self.ydev = 100
-        
-    #     # 689 horizontal double push
-    #     # self.ycen = 140
-    #     # self.xcen = 120
-    #     # self.xydev =100
-    #     # self.xdev1 = 100
-    #     # self.xdev2 = 100
-    #     # self.ydev = 100
-        
-    #     # 689 vertical push
-    #     # self.ycen = 110
-    #     # self.xcen = 185
-    #     # self.xdev = 25
-    #     # self.ydev = 40
-    #     # self.xdev1 = 20
-    #     # self.xdev2 = 20
-    #     # self.ydev1 = 25
-    #     # self.ydev2 = 80
-        
-    #     # interferometry
-    #     self.xint = 150
-    #     self.intdev = 15
-    #     self.y0hk = 176
-    #     self.y2hk = self.y0hk-2*self.intdev
-    #     self.y2hkm = self.y0hk+2*self.intdev
-    #     self.y4hk = 100
- 
-    def camera_init(self, scheme=0):
         # set camera settings
         if self.get_is_armed(): self.disarm()
         self.cam.set_exposure(self.Exposure_Time)
         self.cam.set_gain(self.Hardware_Gain)
-        #self.cam.set_roi(1200,1400,1000,1000) ###USED for 3-photon 689
-        
-        #self.cam.set_roi(1250,1425,1000,1000)
+
         self.cam.set_roi(1250,1425,400,300)
         self.cam_range = (50,-40, 30,-10)
         self.cam.get_all_images() ## clears buffer
@@ -168,90 +119,79 @@ class _Camera(EnvExperiment):
         self.y2hk = self.y0hk-2*self.intdev
         self.y2hkm = self.y0hk+2*self.intdev
         self.y4hk = 100
-                  
+
+        self.arm(N=N)
+    
+    @rpc
     def arm(self, N=2):   
-        # arm the camera
+        """arms the camera to take N images. If already armed, does nothing."""
         if not self.get_is_armed():
             self.cam.arm(N)
-        
-    def acquire(self, N=1):
-        # acquire N images
-        for _ in range(N):
-            self.cam.acquire()
-        
+            time.sleep(0.05) # give camera time to arm
+    @rpc  
+    def acquire_frame(self):
+        """acquires N images. Camera should already be armed. If not armed, arms and acquires."""
+        self.cam.acquire()  
+        raw = self.cam.get_all_images()[0]
+
+        x1, x2, y1, y2 = self.cam_range
+        self.current_image=np.copy(raw)[x1:x2,y1:y2] # acquire and crop image
+
+
+    @rpc  
     def get_is_armed(self):
+        """returns whether the camera is currently armed."""
         return self.cam.get_is_armed()
               
-                
+    @rpc            
     def disarm(self):
-        self.cam.disarm()
-               
-    def dispose(self):  
-       self.cam.dispose()
+        """disarms the camera if it is armed. If not armed, does nothing."""
+        if self.get_is_armed():
+            self.cam.disarm()
+    @rpc            
+    def dispose(self): 
+        """disposes of the camera resources. Should be called at end of experiment."""
+        self.cam.dispose()
     
     @kernel
     def trigger_camera(self):
-       self.ttl4.on()
-       delay(1*ms)
-       self.ttl4.off()  
+        """
+        kernel decorator.
+        Triggers the camera to take an image."""
+        self.ttl4.pulse(1*ms)
+
        
     @kernel
     def camera_delay(self, time):
         # add in a kernel function for delaying camera exposure
         delay(time)
-        
+
+    @rpc     
     def process_image(self, save=True, name='', bg_sub=True):
         # pulls the current image, saves/bg subs as needed. Saves to current image dataset
-        self.acquire()
-        x1, x2, y1, y2 = self.cam_range
-        self.current_image=np.copy(self.cam.get_all_images()[0])[x1:x2,y1:y2] # acquire and crop image
-
+        self.acquire_frame()
+       
         if save:
-            self.set_dataset(f"detection.images.Raw_{name}{self.ind}", self.current_image, broadcast=False)
+            self.set_dataset(f"detection.images.Raw_{name}{self.ind}", self.current_image)
         
         if bg_sub: 
             self.current_image = np.subtract(self.current_image,self.background_image,dtype=np.int16)
-            
-        Image.fromarray(self.current_image.T).save("C:/Users/sr/Documents/Artiq/artiq-master/results/current_image.png")    
+               
         if self.Median_Filter:
             self.current_image = medfilt(self.current_image, 3)
         if self.Gaussian_Filter:
             self.current_image = gaussian_filter(self.current_image, 3)
         if save:
-            self.set_dataset(f"detection.images.{name}{self.ind}", self.current_image, broadcast=False)
+            self.set_dataset(f"detection.images.{name}{self.ind}", self.current_image)
             
         
-        
-        # Ranges for horizontal push
-        # self.set_dataset(f"detection.images.ratio", int(10**6*((np.sum(self.current_image[self.x2:self.x3,self.y1:self.y2]))/(np.sum(self.current_image[self.x1:self.x3, self.y1:self.y2])))), broadcast=True)
-        #self.set_dataset(f"detection.images.counts", int((np.sum(self.current_image[self.x2:self.x3,self.y1:self.y2]))), broadcast=True)
-        
-       
         # Ranges for 689 spectrsoscopy push
         self.set_dataset(f"detection.images.ratio", int(10**6*((np.sum(self.current_image[self.xcen:self.xcen+self.xdev2,self.ycen-self.ydev:self.ycen+self.ydev]))/(np.sum(self.current_image[self.xcen-self.xdev1:self.xcen+self.xdev2, self.ycen-self.ydev:self.ycen+self.ydev])))), broadcast=True)
-        #self.set_dataset(f"detection.images.ratio", int(10**6*((np.sum(self.current_image[self.xcen-self.xdev:self.xcen+self.xdev,self.ycen+self.ydev1:self.ycen]))/(np.sum(self.current_image[self.xcen-self.xdev:self.xcen+self.xdev,self.ycen-self.ydev2:self.ycen+self.ydev1])))), broadcast=True)
-        #self.set_dataset(f"detection.images.counts",int(((np.sum(self.current_image[self.xcen-self.xdev:self.xcen+self.xdev,self.ycen:self.ycen+self.ydev])))), broadcast=True)
-        #self.set_dataset("detection.images.total_counts_port2",int(np.sum(self.current_image[self.xcen:self.xcen+self.xdev2, self.ycen-self.ydev:self.ycen+self.ydev])), broadcast=True)
         self.set_dataset("detection.images.total_counts",int(np.sum(self.current_image)), broadcast=True)
-        self.ind += 1
         
-         
-        # Ranges for Bragg
-        # +1st order
-        #self.set_dataset(f"detection.images.ratio", int(10**6*((np.sum(self.current_image[self.xint:self.xint+self.xydev,self.y2hk-self.intdev:self.y2hk+self.intdev]))/(np.sum(self.current_image[self.xint:self.xint+self.xydev,self.y2hk-self.intdev:self.y0hk+self.intdev])))), broadcast=True)
-
-        # -1st order 
-        #self.set_dataset(f"detection.images.ratio", int(10**6*((np.sum(self.current_image[self.xint:self.xint+self.xydev,self.y2hkm-self.intdev:self.y2hkm+self.intdev]))/(np.sum(self.current_image[self.xint:self.xint+self.xydev,self.y0hk-self.intdev:self.y2hkm+self.intdev])))), broadcast=True)
-
+        
         display_image = np.copy(self.current_image)
-        
-        # Display for rMOT
-        # display_image[self.x1:self.x2,   self.y2] = 200
-        # display_image[self.x1,   self.y1:self.y2+1] = 200
-        # display_image[self.x2,   self.y1:self.y2+1] = 200
-        # display_image[self.x2,   self.y1:self.y2+1] = 200
-        
-        
+
         #display for horizontal push
         display_image[self.xcen-self.xdev1:self.xcen+self.xdev2+1, self.ycen] = 200
         display_image[self.xcen-self.xdev1,   self.ycen-self.ydev:self.ycen+1] = 200
@@ -270,59 +210,25 @@ class _Camera(EnvExperiment):
         # display_image[self.xcen-self.xdev, self.ycen-self.ydev2:self.ycen+self.ydev1] = 200
         # display_image[self.xcen+self.xdev, self.ycen-self.ydev2:self.ycen+self.ydev1] = 200
 
-        
-        #Display for Bragg
-        #+1 order
-        # display_image[self.xint:self.xint+self.xydev+1, self.y0hk+self.intdev] = 200
-        # display_image[self.xint,   self.y0hk+self.intdev:self.y2hk-self.intdev+1] = 200
-        # display_image[self.xint:self.xint+self.xydev+1, self.y2hk-self.intdev] = 200
-        # display_image[self.xint+self.xydev,   self.y0hk+self.intdev:self.y2hk-self.intdev+1] = 200
-        # display_image[self.xint:self.xint+self.xydev+1, self.y0hk-self.intdev] = 200
-        
-        #-1 order
-        # display_image[self.xint:self.xint+self.xydev+1, self.y0hk-self.intdev] = 200
-        # display_image[self.xint,   self.y0hk-self.intdev:self.y2hkm+self.intdev+1] = 200
-        # display_image[self.xint:self.xint+self.xydev+1, self.y2hkm+self.intdev] = 200
-        # display_image[self.xint+self.xydev,   self.y0hk-self.intdev:self.y2hk+self.intdev+1] = 200
-        # display_image[self.xint:self.xint+self.xydev+1, self.y0hk+self.intdev] = 200
-        
-        #display_image[self.xint-self.xydev:self.xint, self.y0hk-2:self.y0hk+2] = 50 #0hk marker
-        #display_image[  80:85, 165:170] = 50
-        #display_image[  80:85, 190:195 ] = 50
+    
 
 
         display_image = np.where(display_image > 0, display_image, 0)
         self.set_dataset("detection.images.current_image", display_image, broadcast=True)
+        self.ind += 1
         
-        self.disarm()
-        
+
+
+    @rpc    
     def process_background(self):
         # processes the image from the background imaging
-        self.acquire()
-        x1, x3, y1, y2 = self.cam_range
+        self.acquire_frame()
+        self.background_image = np.copy(self.current_image)
         
-        self.background_image = np.copy(self.cam.get_all_images()[0])[x1:x3,y1:y2]
-        
-        self.set_dataset("detection.images.background_image", self.background_image, broadcast=False)
+        self.set_dataset("detection.images.background_image", self.background_image )
         self.set_dataset("detection.images.current_image", self.background_image, broadcast=True)
-        self.disarm()
-    
-    @kernel    
-    def take_background(self):
-        # takes background to subtract if wanted
-        self.trigger_camera()
-        self.camera_delay(self.Exposure_Time)
-        delay(200*ms)
-        self.process_background()
 
-    @kernel
-    def take_picture(self, save=True, name='', bg_sub=True):
-        # triggers the camera and hands off to image processing
-        self.trigger_camera()
-        self.camera_delay(self.Exposure_Time)  
-        self.process_image(save, name, bg_sub)
-    
-    
+    @rpc
     def prep_temp_datasets(self, n):
         self.set_dataset(
             "gaussianparams",
@@ -331,7 +237,7 @@ class _Camera(EnvExperiment):
         );
         
         
-        
+    @rpc    
     def process_gaussian(self, index) -> TInt32:
         img = np.array(self.get_dataset("detection.images.current_image"))
         center_x, center_y = np.unravel_index(img.argmax(), img.shape)
@@ -345,16 +251,22 @@ class _Camera(EnvExperiment):
 
         return int(10**6*popt[index])
     
+    @rpc
     def get_push_stats(self) -> TInt32:
         return self.get_dataset('detection.images.ratio')
+    
+    @rpc
     def get_count_stats(self) -> TInt32:
         return int(self.get_dataset('detection.images.total_counts'))
     
+    @rpc
     def get_totalcount_stats(self) -> TInt32:
         return self.get_dataset('detection.images.total_counts')
+
+    @rpc
     def get_totalcount_stats_port2(self) -> TInt32:
         return self.get_dataset('detection.images.total_counts_port2')
-    
+    @rpc
     def get_peak(self) -> TInt32:
         img = np.array(self.get_dataset("detection.images.current_image"))
         cx, cy = np.unravel_index(img.argmax(), img.shape  )

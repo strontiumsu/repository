@@ -100,9 +100,8 @@ class DipoleTrapFrequencyAxial_exp(Scan1D, FreqScan, EnvExperiment):
     def prepare(self):
         self.MOTs.prepare_aoms()
         self.MOTs.prepare_coils()
-        self.Camera.camera_init()
+        self.Camera.camera_init(N=len(list(self.get_scan_points()))*self.nrepeats + 10)
         self.Bragg.prepare_aoms()
-        self.Camera.prep_temp_datasets(len(list(self.get_scan_points())))
         
         # register model with scan framework
         self.enable_histograms = True
@@ -118,7 +117,6 @@ class DipoleTrapFrequencyAxial_exp(Scan1D, FreqScan, EnvExperiment):
         delay(10*ms)
 
         self.MOTs.take_background_image_exp(self.Camera)
-        delay(100*ms)
         
         
         self.MOTs.AOMs_off_all()
@@ -148,8 +146,6 @@ class DipoleTrapFrequencyAxial_exp(Scan1D, FreqScan, EnvExperiment):
         # point = oscillation frequency
         self.core.wait_until_mu(now_mu())
         delay(1*ms)
-        self.Camera.arm()
-        self.core.break_realtime()
 
         self.MOTs.AOMs_off_all()
         delay(10*ms)
@@ -192,9 +188,12 @@ class DipoleTrapFrequencyAxial_exp(Scan1D, FreqScan, EnvExperiment):
         self.MOTs.AOMs_on_all()
         delay(50*ms)
         self.Camera.process_image(bg_sub=True)
+        self.core.break_realtime()
         delay(10*ms)
         return 0
 
+    def after_scan(self):
+        self.Camera.disarm()
 
     @kernel
     def load_mod(self, dds, ai, af, freq):
@@ -228,7 +227,6 @@ class DipoleTrapFrequencyAxial_exp(Scan1D, FreqScan, EnvExperiment):
         dds.cpld.set_profile(7)
         dds.cpld.io_update.pulse_mu(8)
         delay(100*us)
-        self.core.break_realtime()
         dds.write_ram(ram_data[1022:])
         delay(100*us)        
         
