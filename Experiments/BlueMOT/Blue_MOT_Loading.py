@@ -74,11 +74,12 @@ class BlueMOTLoading_exp(Scan1D, TimeScan, EnvExperiment):
         delay(10*ms)
 
         self.MOTs.take_background_image_exp(self.Camera)
+        delay(10*ms)
         self.MOTs.atom_source_on()
         delay(100*ms)
-        self.MOTs.AOMs_on(['3D', "3P0_repump", "3P2_repump"])
+        self.MOTs.AOMs_on_all()
         delay(200*ms)
-        self.MOTs.AOMs_off(['3D', "3P0_repump", "3P2_repump"])
+        self.MOTs.AOMs_off_all()
         self.MOTs.atom_source_off()
 
 
@@ -93,18 +94,18 @@ class BlueMOTLoading_exp(Scan1D, TimeScan, EnvExperiment):
             self.Camera.arm()
             delay(200*ms)
     
-            self.MOTs.AOMs_off(self.MOTs.AOMs)
+            self.MOTs.AOMs_off_all()
             delay(10*ms)
     
             #self.MOTs.rMOT_pulse()
            #delay(self.load_time)
     
-            self.MOTs.bMOT_load();
+            self.MOTs.bMOT_load()
             self.MOTs.atom_source_off()
             delay(t_delay)
             self.MOTs.take_image_exp(self.Camera)
 
-            self.MOTs.AOMs_off(["3D", "3P0_repump", "3P2_repump"])
+            self.MOTs.AOMs_off_all()
             self.MOTs.Blackman_ramp_down()
             delay(5*ms)
             self.Camera.process_image(bg_sub=True)
@@ -119,14 +120,14 @@ class BlueMOTLoading_exp(Scan1D, TimeScan, EnvExperiment):
             self.Camera.arm()
             delay(200*ms)
     
-            self.MOTs.AOMs_off(self.MOTs.AOMs)
+            self.MOTs.AOMs_off_all()
             delay(10*ms)
     
             #self.MOTs.rMOT_pulse()
            #delay(self.load_time)
     
             self.MOTs.atom_source_on()
-            self.MOTs.AOMs_on(["3D", "3P0_repump", "3P2_repump"])
+            self.MOTs.AOMs_on_all()
             self.MOTs.set_current_dir(0)
             self.MOTs.Blackman_ramp_up()
     
@@ -136,7 +137,7 @@ class BlueMOTLoading_exp(Scan1D, TimeScan, EnvExperiment):
             
             self.MOTs.atom_source_off()
             delay(5*ms)
-            self.MOTs.AOMs_off(["3D", "3P0_repump", "3P2_repump"])
+            self.MOTs.AOMs_off_all()
             #self.MOTs.take_MOT_image(self.Camera)
     
             self.MOTs.Blackman_ramp_down()

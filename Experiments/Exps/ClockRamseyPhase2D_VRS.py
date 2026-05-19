@@ -6,6 +6,9 @@ Created on Tue Jan 21 13:37:31 2025
 """
 
 from scan_framework import Scan2D
+from scan_framework import Scan1D
+from artiq.coredevice import ad9910
+
 from artiq.experiment import *
 import numpy as np
 import pyvisa
@@ -22,7 +25,7 @@ from repository.models.scan_models import RamseyPhaseModel
 from repository.models.scan_models import RamseyDecayModel
 
 
-class ClockRamseyPhase2D_exp(Scan2D, EnvExperiment):
+class ClockRamseyPhase2D_VRSexp(Scan2D, EnvExperiment):
     
     def build(self, **kwargs):
         # required initializations
@@ -95,6 +98,25 @@ class ClockRamseyPhase2D_exp(Scan2D, EnvExperiment):
         self.setattr_argument("free_space",BooleanValue(False),"Params")
         self.setattr_argument("randomize_phase",BooleanValue(False),"Params")
 
+
+        # VRS Scan args
+        self.setattr_argument("freq_center", NumberValue( 3*1e6,min=0.1*1e6, max=200.0*1e6,scale=1e6, unit="MHz",ndecimals = 3),"parameters")
+        self.setattr_argument("freq_width", NumberValue( 1*1e6,min=-10*1e6, max=50.0*1e6,scale=1e6, unit="MHz",ndecimals = 3),"parameters")     
+        self.setattr_argument("scan_time", NumberValue( 100*1e-6,min=1*1e-6, max=100000.0*1e-6,scale=1e-6, unit="us",ndecimals = 3),"parameters")
+        self.setattr_argument("Scan_Ch", EnumerationValue(["Carrier", "Sideband"], default='Carrier'), "parameters")
+        self.setattr_argument("delay_time", NumberValue(60.0*1e-3,min=0.0*1e-3,max=10.00*1e-3,scale=1e-3,
+                      unit="ms"),"Params")
+        
+        # boolean args
+        self.setattr_argument("Pre_measure", BooleanValue(True), "parameters")
+             
+                
+        # Prep DDS scan
+        self.freq_list= np.linspace(0.0*MHz, 0.0*MHz, 1024)
+        self.freq_list_ram = np.full(1024, 1)
+        self.step_size=0
+        self.scan_dds = self.Bragg.aom_carrier
+        
         self.t0 = np.int64(0)
         self.FIX_DELAY_TIME = 150*ns
         self.scan0 = 0
@@ -142,6 +164,9 @@ class ClockRamseyPhase2D_exp(Scan2D, EnvExperiment):
         self.register_model(self.model1, dimension=0, fit=True, set=True)
         self.register_model(self.model2, dimension=1, fit=True, set=True, measurement=True)
         
+        if self.freq_width/2 > self.freq_center: raise Exception("Bad Range...")
+        if self.Scan_Ch == "Sideband": self.scan_dds = self.Bragg.aom_sideband
+
     @kernel
     def before_scan(self):
         # runs before experiment take place
@@ -170,9 +195,9 @@ class ClockRamseyPhase2D_exp(Scan2D, EnvExperiment):
         self.core.wait_until_mu(now_mu())
     
     def before_measure(self, point, measurement):
-        self.Camera.arm()      
-  
- 
+        self.Camera.arm()    
+        
+        
     @kernel
     def measure(self, point):        
         
@@ -182,10 +207,16 @@ class ClockRamseyPhase2D_exp(Scan2D, EnvExperiment):
         
 
         self.MOTs.init_rmot_dds(self.MOTs.rmot_freq_i, self.MOTs.rmot_freq_f,  self.MOTs.rmot_freq_depth_i, self.MOTs.rmot_freq_depth_f, self.MOTs.freq_3D_red)
-
-        delay(1*ms)
+        delay(5*ms)
+        
         self.core.break_realtime()
         delay(10*ms)
+        self.load_scan()
+        delay(10*ms)
+        self.core.break_realtime()
+        delay(10*ms)
+
+    
 
         self.MOTs.AOMs_off_all()
         self.State_Control.AOMs_off_all()               
@@ -194,6 +225,21 @@ class ClockRamseyPhase2D_exp(Scan2D, EnvExperiment):
         self.set_phases(point)
         delay(10*ms)
         
+        #### ENSURE KNOWN STATES ################
+        delay(1*ms)
+         
+        self.State_Control.aom_689.set(frequency=self.State_Control.freq_689, amplitude=0.8)
+        self.State_Control.aom_688.set(frequency=self.State_Control.freq_688, amplitude=0.8)
+        self.State_Control.aom_679.set(frequency=self.State_Control.freq_679, amplitude=0.8)
+        
+        delay(1*ms)
+        
+        self.Bragg.aom_sideband.set_att(self.Bragg.atten_Sideband)
+        self.Bragg.aom_carrier.set_att(self.Bragg.atten_Carrier)
+        self.MOTs.aom_3D_blue.set_att(self.MOTs.atten_3D)
+        delay(1*ms)
+        
+    
         # generate red mot
         self.MOTs.rMOT_pulse_new()
         # load into dipole trap and perform molasses (if selected)
@@ -217,7 +263,13 @@ class ClockRamseyPhase2D_exp(Scan2D, EnvExperiment):
         #self.MOTs.aom_3D_blue.sw.on()
         #delay(50*us)
         #self.MOTs.aom_3D_blue.sw.off()
-        
+    
+        if self.Pre_measure:    
+            self.ttl5.on()       # for triggering start
+
+            self.scan_probe(self.scan_time)
+            self.ttl5.off()       # for triggering start
+        delay(1*us)
         # -----  3P1 EXCITATION -----------------------
         if self.excited_state=='3P1':
             self.ttl5.on()       # for triggering start
@@ -287,14 +339,19 @@ class ClockRamseyPhase2D_exp(Scan2D, EnvExperiment):
                 
                 delay(self.delay_exp/2)
 
+                #### MEASURE VRS ############
+                self.ttl5.on()       # for triggering start
+                self.scan_probe(self.scan_time)
+                self.ttl5.off() 
+    
                 if self.Echo:
                     #delay(500*us)
                     #delay(self.delay_exp)
-                    delay(self.delay_exp*point[1])
+                    #delay(self.delay_exp*point[1])
                     
                     ### Procedure 1
                     self.State_Control.pulse_689(self.pi_time689)
-                    delay(0.1*us)
+                    delay(0.05*us)
                     with parallel:
                         self.State_Control.pulse_688(self.pi_timeRaman)
                         self.State_Control.pulse_679(self.pi_timeRaman)
@@ -332,6 +389,7 @@ class ClockRamseyPhase2D_exp(Scan2D, EnvExperiment):
             
                 
             else:    
+                ############ CURRENTLY NO CAVITY READOUT HERE 
                 self.ttl5.on()       # for triggering start
                 
               
@@ -392,6 +450,8 @@ class ClockRamseyPhase2D_exp(Scan2D, EnvExperiment):
         self.MOTs.take_MOT_image(self.Camera)  
         delay(15*ms)
         
+        self.scan_dds.set_cfr1(ram_enable=0)
+        self.scan_dds.cpld.io_update.pulse_mu(8)
         self.MOTs.set_current(0.0)
         delay(20*ms)
         self.MOTs.set_current_dir(0)
@@ -410,8 +470,61 @@ class ClockRamseyPhase2D_exp(Scan2D, EnvExperiment):
         self.write_val(val)
         return val
         #return self.Camera.get_push_stats()
+
+    @kernel
+    def scan_probe(self, time):
+        with parallel:
+            self.Bragg.aom_carrier.sw.on()
+            self.Bragg.aom_sideband.sw.on()
+            self.ttl5.on()
+            self.scan_dds.cpld.io_update.pulse_mu(8)
+            
+        delay(time)
         
- 
+        with parallel:
+            self.Bragg.aom_carrier.sw.off()
+            self.Bragg.aom_sideband.sw.off()
+            self.ttl5.off()
+            
+            
+    @kernel
+    def load_scan(self):
+        self.step_size = int(self.scan_time/(1024*4*ns))
+        f0 = self.freq_center + self.freq_width/2
+        
+    
+        f_step = self.freq_width / 1023        
+        for i in range(1024):
+            self.freq_list[i] = f0 - f_step*i
+            
+        # f_step = self.freq_width / 511       
+        # for i in range(512):
+        #     self.freq_list[i] = f0 - f_step*i
+        #     self.freq_list[-1-i] = f0 - f_step*i
+
+            
+        self.scan_dds.frequency_to_ram(self.freq_list, self.freq_list_ram)
+
+        self.core.break_realtime()
+        delay(10 * ms)
+
+
+        self.scan_dds.set_cfr1(ram_enable=0)
+        self.scan_dds.cpld.io_update.pulse_mu(8)
+
+        delay(1*ms)
+        self.scan_dds.set_profile_ram(start=0, end=1024-1, step=(self.step_size | (2**6 - 1 ) << 16),
+                                  profile=0, mode=ad9910.RAM_MODE_RAMPUP)
+        delay(5*ms)
+        self.scan_dds.cpld.set_profile(0)
+        self.scan_dds.cpld.io_update.pulse_mu(8)
+        self.scan_dds.write_ram(self.freq_list_ram)
+        # prepare to enable ram and set frequency as target
+        delay(1*ms)
+        self.scan_dds.set_cfr1(internal_profile=0, ram_enable=1, ram_destination=ad9910.RAM_DEST_FTW)
+        delay(10*ms)
+
+        self.core.wait_until_mu(now_mu())  
     
     @kernel
     def readout(self, scheme):

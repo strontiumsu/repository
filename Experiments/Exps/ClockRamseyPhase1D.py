@@ -140,25 +140,43 @@ class ClockRamseyPhase_exp(Scan1D, EnvExperiment):
         
 
         
-        self.MOTs.AOMs_off(self.MOTs.AOMs)
-        self.State_Control.AOMs_off(self.State_Control.AOMs)
+        self.MOTs.AOMs_off_all()
+        self.State_Control.AOMs_off_all()
+        
         delay(1*ms)
-
+         
+        self.State_Control.aom_689.set(frequency=self.State_Control.freq_689, amplitude=0.8)
+        self.State_Control.aom_688.set(frequency=self.State_Control.freq_688, amplitude=0.8)
+        self.State_Control.aom_679.set(frequency=self.State_Control.freq_679, amplitude=0.8)
+        
+        delay(1*ms)
+        
+        self.Bragg.aom_sideband.set_att(self.Bragg.atten_Sideband)
+        self.Bragg.aom_carrier.set_att(self.Bragg.atten_Carrier)
+        self.MOTs.aom_3D_blue.set_att(self.MOTs.atten_3D)
+        delay(1*ms)
+        
+        
+        
+        ##### FORM ATOM SAMPLE ################
         
         # generate red mot
-        self.MOTs.rMOT_pulse()
+        self.MOTs.close_688() # turn off 688 nm
+        self.MOTs.rMOT_pulse_new()
         
-        # hold in dipole trap while changing MOT config
+        # load into dipole trap and perform molasses (if selected)
+        # Total time for this sequence needs to be >~ 40 ms for cavity shaking to stop.
         with parallel:
-            delay(self.dipole_load_time)
-            with sequential:
-                self.MOTs.set_current_dir(1) # XXX let MOT field go to zero and switch H-bridge, 5ms
-                self.MOTs.set_current(self.B_field)
-                #self.MOTs.set_current(time/(1*us))
-                
-        #self.Bragg.aom_dipole.set_att(24.0) # Turn off lattice
-        #self.Bragg.aom_lattice.sw.off()
-        delay(20*us) #??
+            delay(self.dipole_load_time/3) 
+            self.MOTs.set_current_dir(1) # let MOT field go to zero and switch H-bridge, 15ms        
+        if self.MOTs.molasses:
+            self.MOTs.molasses_pulse(freq=self.MOTs.molasses_frequency, amp=0.1, t=self.dipole_load_time/3)
+        else:
+            delay(self.dipole_load_time/3)
+        self.MOTs.Blackman_ramp(0.0, self.B_field,self.dipole_load_time/3) # set bias field so 3P1 m=+1 is ~40MHz separated.
+        with parallel:
+            self.MOTs.open_688() # turn off 688 nm
+            delay(5*ms)
         
         # experiment
         self.ttl5.on()       # for triggering start

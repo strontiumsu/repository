@@ -45,7 +45,7 @@ class VRS_scan_calib_exp(Scan1D, EnvExperiment):
         self.setattr_argument("B_field", NumberValue(0.21,min=0.0,max=2,scale=1, unit="V", ndecimals=3),"parameters")
         self.setattr_argument("pi_time_689", NumberValue(1.0*1e-6,min=0.0*1e-6,max=1000.00*1e-6,scale=1e-6, unit="us"),"parameters")
         self.setattr_argument("pi_time_Ramsey", NumberValue(1.0*1e-6,min=0.0*1e-6,max=1000.00*1e-6,scale=1e-6,unit="us"),"parameters")
-        self.setattr_argument("dipole_load_time", NumberValue(20.0*1e-3,min=0.0*1e-3,max=9000.00*1e-3,scale=1e-3, unit="ms"),"parameters")
+        self.setattr_argument("dipole_load_time", NumberValue(60.0*1e-3,min=0.0*1e-3,max=9000.00*1e-3,scale=1e-3, unit="ms"),"parameters")
         
         # VRS Scan args
         self.setattr_argument("freq_center", NumberValue( 3*1e6,min=0.1*1e6, max=200.0*1e6,scale=1e6, unit="MHz",ndecimals = 3),"parameters")
@@ -122,16 +122,19 @@ class VRS_scan_calib_exp(Scan1D, EnvExperiment):
         self.core.reset()
         delay(1*ms)
         
+        self.MOTs.carrier_off()
+        delay(50*ms)
+        
         ##### PREP EXP ################
         self.MOTs.init_rmot_dds(self.MOTs.rmot_freq_i, self.MOTs.rmot_freq_f,  self.MOTs.rmot_freq_depth_i, self.MOTs.rmot_freq_depth_f, self.MOTs.freq_3D_red)
-        delay(1*ms)
+        delay(5*ms)
         
         self.core.break_realtime()
-        delay(5*ms)
+        delay(10*ms)
         self.load_scan()
-        delay(5*ms)
+        delay(10*ms)
         self.core.break_realtime()
-        delay(5*ms)
+        delay(10*ms)
         
         
         ##### ENSURE KNOWN STATES ################
@@ -155,21 +158,20 @@ class VRS_scan_calib_exp(Scan1D, EnvExperiment):
         ##### FORM ATOM SAMPLE ################
         
         # generate red mot
-        self.MOTs.close_688() # close 688 shutter to prevent leakage from optical pumping
-        delay(10*ms)
-        self.MOTs.open_repumpers() #TTL to 679 repumper shutter 
         self.MOTs.rMOT_pulse_new()
-        self.MOTs.open_688() # open shutter after 689 rMOT light turns off to be prepare for Raman pulse
+        
+        # load into dipole trap and perform molasses (if selected)
+        # Total time for this sequence needs to be >~ 40 ms for cavity to stop.
+        with parallel:
+            delay(self.dipole_load_time/3) 
+            self.MOTs.set_current_dir(1) # let MOT field go to zero and switch H-bridge, 15ms        
         if self.MOTs.molasses:
-               with parallel:
-                   self.MOTs.set_current_dir(1) 
-                   self.MOTs.molasses_pulse(freq=self.MOTs.molasses_frequency, amp=0.1, t = self.dipole_load_time)
+            self.MOTs.molasses_pulse(freq=self.MOTs.molasses_frequency, amp=0.1, t=self.dipole_load_time/3)
         else:
-            with parallel:
-                delay(self.dipole_load_time) # Needs to by >~ 40 ms for cavity shaking to stop.
-                self.MOTs.set_current_dir(1) # let MOT field go to zero and switch H-bridge, 5ms        
-     
-        self.MOTs.Blackman_ramp(0.0, self.B_field, 20*ms) # set bias field so 3P1 m=+1 is ~40MHz separated.
+            delay(self.dipole_load_time/3)
+        self.MOTs.Blackman_ramp(0.0, self.B_field,self.dipole_load_time/3) # set bias field so 3P1 m=+1 is ~40MHz separated.
+        delay(5*ms)
+ 
         
         ##### PREMEASURE ################
         if self.Pre_measure:    
@@ -178,39 +180,41 @@ class VRS_scan_calib_exp(Scan1D, EnvExperiment):
         
                 
         if self.Cavity_clear:
-            delay(5*ms)
-            ##### EXCITATION ################
+            
+            ##### Popultate 3P0 before clear with sequential Pi pulse
             self.State_Control.pulse_689(self.pi_time_689)
-            delay(0.15*us)
+            delay(0.05*us)
             with parallel:
                 self.State_Control.pulse_679(self.pi_time_Ramsey)
                 self.State_Control.pulse_688(self.pi_time_Ramsey)
         
-            ##### CLEAR CAVITY AND PREP GROUND ################
+            ##### Cavity clearing with push and 461 cavity beams ################
             self.State_Control.cav_clear_pulse(2.5*ms)
 
+            # Bring atoms back to ground state with sequential Pi pulse and extra repumping
             with parallel:
                 self.State_Control.pulse_679(self.pi_time_Ramsey)
                 self.State_Control.pulse_688(self.pi_time_Ramsey)
+            delay(0.25*us)
+            self.State_Control.pulse_689(self.pi_time_689)
             self.MOTs.close_688() # turn off 688 nm
             self.MOTs.aom_3P0.sw.on()
             self.MOTs.aom_3P2.sw.on()
-            delay(0.5*ms)
+            delay(.5*ms)
             self.MOTs.aom_3P0.sw.off()
             self.MOTs.aom_3P2.sw.off()
+            
 
             ##### REMEASURE VRS ################
             self.scan_probe(self.scan_time)
 
-
-        
-            
         ##### BARE CAVITY CALIB / IMAGE ################
         if self.Calibrate:
-            with parallel:
-                self.Bragg.aom_carrier.set_att(22.0)
-                self.State_Control.cav_clear_pulse(2.5*ms) 
+            # clearout atoms and measure VRS
+            self.State_Control.cav_clear_pulse(2.5*ms)
+            self.MOTs.carrier_on()
             self.scan_probe(self.scan_time)
+            
         elif self.Image:
             #self.readout(scheme="0")
             self.MOTs.take_MOT_image(self.Camera)
@@ -227,6 +231,8 @@ class VRS_scan_calib_exp(Scan1D, EnvExperiment):
         self.MOTs.AOMs_off_all()
         self.State_Control.AOMs_off_all()
         delay(1*ms)
+        self.MOTs.carrier_off()
+
         #delay(10*s)
         
         
@@ -318,7 +324,7 @@ class VRS_scan_calib_exp(Scan1D, EnvExperiment):
         elif scheme == "1":
             self.State_Control.push_pulse(self.MOTs.Push_pulse_time)
             delay(200*us)
-            self.BrState_Controlagg.push_pulse(self.MOTs.Push_pulse_time)
+            self.State_Control.push_pulse(self.MOTs.Push_pulse_time)
             delay(5*us)
             
             self.MOTs.aom_3P0.sw.on()

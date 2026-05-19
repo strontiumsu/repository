@@ -1,1 +1,10 @@
+
 *.pyc
+*.h5
+*.npy
+*.log
+.aux
+.claude 
+.vscode
+
+

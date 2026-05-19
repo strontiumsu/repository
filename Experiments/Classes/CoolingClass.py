@@ -106,7 +106,7 @@ class _Cooling(EnvExperiment):
         
         self.setattr_argument("rmot_freq_i", NumberValue(180.5*1e6,min=0.1*1e6, max=200.0*1e6, scale=1e6, unit="MHz", ndecimals = 3), "Red MOT")     
         self.setattr_argument("rmot_freq_depth_i", NumberValue(6*1e6, min=0.0*1e6, max=10.0*1e6, scale=1e6, unit="MHz"), "Red MOT")
-        self.setattr_argument("rmot_freq_f", NumberValue(180.16*1e6,min=0.1*1e6, max=200.0*1e6, scale=1e6, unit="MHz", ndecimals = 3), "Red MOT")     
+        self.setattr_argument("rmot_freq_f", NumberValue(180.0*1e6,min=0.1*1e6, max=200.0*1e6, scale=1e6, unit="MHz", ndecimals = 3), "Red MOT")     
         self.setattr_argument("rmot_freq_depth_f", NumberValue(1.1*1e6, min=0.0*1e6, max=10.0*1e6, scale=1e6, unit="MHz"), "Red MOT")
         self.setattr_argument("nprofiles",NumberValue(7,min=2,max=7),"Red MOT")
         
@@ -116,7 +116,7 @@ class _Cooling(EnvExperiment):
         self.setattr_argument("molasses_frequency", NumberValue(179.25*1e6, min=10*1e6, max=200*1e6, scale=1e6, unit='MHz'),"Red MOT")
 
         ## Misc params
-        self.setattr_argument("Push_pulse_time",NumberValue(0.7*1e-6,min=0.0*1e6,max=50000.00*1e-3,scale = 1e-6,
+        self.setattr_argument("Push_pulse_time",NumberValue(0.9*1e-6,min=0.0*1e6,max=50000.00*1e-3,scale = 1e-6,
                       unit="us"),"Detection")
         self.setattr_argument("Detection_pulse_time",NumberValue(0.02*1e-3,min=0.0,max=100.00*1e-3,scale = 1e-3,
                       unit="ms"),"Detection")
@@ -234,19 +234,70 @@ class _Cooling(EnvExperiment):
                 set_asf = ch.amplitude_to_asf(self.scales[ind])
                 ch.set_mu(set_freq, asf=set_asf)
 
-
+    ######################################################
+    ############### DAC as TTL FUNCTIONS
+    ######################################################
+    @kernel
+    def dac_set(self, ch, val):
+        self.dac_0.set_dac([val], [ch])
 
     # turns the zeeman and 2D off/on via shutter
     @kernel
     def atom_source_on(self):
         self.dac_set(1, 4.0)
-        
+        delay(10*us)   
         
     @kernel
     def atom_source_off(self):
         self.dac_set(1, 0.0)
+        delay(10*us)
+        
+    # turns up the probe carrier RF signal
+    @kernel
+    def carrier_on(self):
+        self.dac_set(7, 0.1)
+        delay(10*us)
+        
+        
+    @kernel
+    def carrier_off(self):
+        self.dac_set(7, 0.015)
+        delay(10*us)
+    
+    @kernel 
+    def open_688(self):
+        self.dac_set(3, 4.0)
+        delay(10*us)
+        
+    @kernel 
+    def close_688(self):
+        self.dac_set(3, 0.0)
+        delay(10*us)
+    # 
+    @kernel
+    def open_461(self):
+        delay(-3.0*ms)
+        self.dac_set(4, 4.0)
+        delay(3.0*ms)
+        delay(5*us)
 
+    # 
+    @kernel
+    def close_461(self):
+        delay(-2.5*ms)
+        self.dac_set(4, 0.0)
+        delay(2.5*ms)
+        delay(5*us)
 
+    @kernel
+    def cavity_res_on(self):
+        self.dac_set(6, 0.0)
+        delay(10*us)
+        
+    @kernel
+    def cavity_res_off(self):
+        self.dac_set(6, 1.0)
+        delay(10*us)
     #<><><><><><><><>
     # Coil Functions
     #<><><><><><><><>
@@ -276,22 +327,7 @@ class _Cooling(EnvExperiment):
         else:
             self.dac_set(0, cur)
             
-    @kernel 
-    def open_688(self):
-        self.dac_set(3, 4.0)
-    @kernel 
-    def close_688(self):
-        self.dac_set(3, 0.0)
-        
-    @kernel 
-    def open_repumpers(self):
-        delay(-3.4*ms)
-        self.dac_set(4, 4.0)
-        delay(3.4*ms)
-        
-    @kernel 
-    def close_repumpers(self):
-        self.dac_set(4, 0.0)
+    
 
     # switches between MOT configs
     @kernel
@@ -366,10 +402,7 @@ class _Cooling(EnvExperiment):
                 self.dac_set(0, end + (start-end)*self.window[step])
                 delay(dt_ramp)
         
-    @kernel
-    def dac_set(self, ch, val):
-        self.dac_0.write_dac(ch, val)
-        self.dac_0.load()
+    
 
     @kernel
     def hold(self, time):
@@ -458,7 +491,83 @@ class _Cooling(EnvExperiment):
         self.core.wait_until_mu(now_mu())
         
             
-   
+    @kernel
+    def init_rmot_dds_new(self, rmot_freq_i=180.5*MHz, rmot_freq_f=180.5*MHz, rmot_freq_depth_i=5.0*MHz, rmot_freq_depth_f=0.5*MHz, rmot_sf_freq=180.0*MHz):
+        self.core.reset()
+        delay(10*ms)
+        f0_i=rmot_freq_i
+        f0_f=rmot_freq_f 
+        depth_i=rmot_freq_depth_i
+        depth_f=rmot_freq_depth_f 
+        
+        
+        flength = int(1022/self.nprofiles)
+        self.step_size = int((1/self.rmot_scan_frequency)/(flength*4*ns)) # save last 2 entries entry for single freq mode
+        
+        # write in sf mode freqs
+        self.freq_list[0] = rmot_sf_freq #[self.freq_3D_red]*2
+        self.freq_list[1] = rmot_sf_freq
+
+        
+        for p in range(int(self.nprofiles)):
+
+            fstart = f0_i + (f0_f-f0_i)*(p/(self.nprofiles-1)) - (depth_i + (depth_f-depth_i)*(p/(self.nprofiles-1)))
+            fend = f0_i + (f0_f-f0_i)*(p/(self.nprofiles-1))
+            
+            for f_ind in range(flength):
+                self.freq_list[p*flength + f_ind + 2] = fend + (fstart-fend) * f_ind/(flength-1)
+                
+
+        self.aom_3D_red.frequency_to_ram(self.freq_list, self.freq_list_ram)
+
+        
+        self.core.break_realtime()
+        delay(10 * ms)
+        
+        #urn off RAM mode to prepare to write
+        self.aom_3D_red.set_cfr1(ram_enable=0)
+        self.aom_3D_red.cpld.io_update.pulse_mu(8)
+        
+
+        # write in the signal frequency stage directly
+        self.aom_3D_red.set_profile_ram(
+            start=0, end=1, step=(int(self.step_size) | (2**6 - 1 ) << 16),
+            profile=0, mode=ad9910.RAM_MODE_CONT_RAMPUP)
+        
+        # write in  nprofiles worth of RAM split over 1022 RAM entries
+        flength = int(1022/self.nprofiles)
+        for p in range(int(self.nprofiles)):
+            delay(1*ms)
+            self.aom_3D_red.set_profile_ram(
+            start=p*flength+2, end=(p+1)*flength-1+2, step=(int(self.step_size) | (2**6 - 1 ) << 16),
+            profile=p+1, mode=ad9910.RAM_MODE_CONT_RAMPUP)
+        delay(1*ms)
+        
+        
+        
+        # write ram entries for scanning ram sections
+        for p in range(int(self.nprofiles)):
+            delay(5*ms)
+            self.aom_3D_red.cpld.set_profile(p+1)
+            self.aom_3D_red.cpld.io_update.pulse_mu(8)
+           # print("writing RAM with following first few values:", self.freq_list_ram[:4])
+            self.aom_3D_red.write_ram(self.freq_list_ram[p*flength+2:(p+1)*flength+2]) 
+
+        # write in RAM for fixed profile 7 
+        delay(5*ms)
+        self.aom_3D_red.cpld.set_profile(0)
+        self.aom_3D_red.cpld.io_update.pulse_mu(8)
+        self.aom_3D_red.write_ram(self.freq_list_ram[0:2]) 
+        
+        # get ready by setting to profile 0 and queueing up RAM mode
+        delay(1*ms)
+        self.aom_3D_red.cpld.set_profile(0)
+        delay(50*ms)
+        
+        self.aom_3D_red.set_cfr1(ram_enable=1, ram_destination=ad9910.RAM_DEST_FTW)
+        self.aom_3D_red.cpld.io_update.pulse_mu(8)
+        delay(10*ms)
+        self.core.wait_until_mu(now_mu())
     
 
     #<><><><><><><><><><><>
@@ -525,8 +634,9 @@ class _Cooling(EnvExperiment):
 
 
     @kernel 
-    def rMOT_pulse_new(self, sf=False, atten_scale_factor=2.67):
+    def rMOT_pulse_new(self, sf=False, atten_scale_factor=3.0, sf_amp = 0.05, dipole_on = True):
         self.atom_source_on() # opens on zeeman and 2D shutters
+        self.close_688() # close 688 shutter to prevent leakage from optical pumping
         self.aom_3D_blue.set_att(self.atten_3D)
         self.aom_3D_red.set_att(self.atten_3D_red)
         self.aom_3D_red.set_amplitude(0.8)
@@ -573,16 +683,12 @@ class _Cooling(EnvExperiment):
         
         # ramp up to broad band red mot current and hold`
         self.Blackman_ramp(self.bmot_current + binc, self.rmot_bb_current, 15*ms)
-        #self.set_current(self.rmot_bb_current)
         delay(self.rmot_bb_duration)
         
         # turn off repumpers
         self.aom_3P0.sw.off()
         self.aom_3P2.sw.off()
         
-        #atten_scale_factor = 2.2
-        
-        #self.linear_ramp(self.rmot_bb_current, self.rmot_sf_current, self.rmot_ramp_duration, self.Npoints)
         with parallel:
             self.linear_ramp(self.rmot_bb_current, self.rmot_sf_current, self.rmot_ramp_duration, self.Npoints)
             with sequential:
@@ -594,31 +700,43 @@ class _Cooling(EnvExperiment):
         # switch to single frequency mode then hold        
         if sf:
             self.aom_3D_red.cpld.set_profile(7)
-            self.aom_3D_red.set_amplitude(0.05)
-
-            sf_atten=21
-            self.aom_3D_red.set_att(self.atten_3D_red+sf_atten)
+            self.aom_3D_red.set_amplitude(sf_amp)
+            self.aom_3D_red.set_att(30.0)
             delay(self.rmot_sf_duration)
         self.aom_3D_red.sw.off()
-
+        delay(10*us) #Makes sure that the aom is fully switched off before the magnetic field ramps down.
         self.urukul1_cpld.set_profile(0)
-        self.Blackman_ramp(self.rmot_sf_current, 0.0, 5*ms)
+        
+        if dipole_on == True:
+            self.Blackman_ramp(self.rmot_sf_current, 0.0, 5*ms)
+        else:
+            self.coils_off()
+        
+        self.open_688() # open 688 shutter to allow for excitation
         
 
         
     @kernel 
-    def rMOT_pulse_shield(self, sf=False, shield_freq = 180.6*MHz, shield_scale=0.8):
+    def rMOT_pulse_shield(self, shield_amp = 0.8, dipole_on = False):
         self.atom_source_on() # opens on zeeman and 2D shutters
+        self.close_688() # close 688 shutter to prevent leakage from optical pumping
         self.aom_3D_blue.set_att(self.atten_3D)
         self.aom_3D_red.set_att(self.atten_3D_red)
+        self.aom_3D_red.set_amplitude(0.8)
 
-        self.aom_3D_red.set(frequency=shield_freq, amplitude=shield_scale)
+        self.urukul1_cpld.set_profile(0)
 
         
         # turn on 3D, and repumps
         self.aom_3D_blue.sw.on()
         self.aom_3P0.sw.on()
         self.aom_3P2.sw.on()
+        
+        #turn on shield beams
+        self.aom_3D_red.cpld.io_update.pulse_mu(8)
+        delay(5*us)
+        self.aom_3D_red.set_amplitude(shield_amp)
+        self.aom_3D_red.sw.on()
         
         
         # turn to MOT mode
@@ -627,14 +745,13 @@ class _Cooling(EnvExperiment):
         #ramp up bmot bfield and hold for load duration
         self.Blackman_ramp(0.0, self.bmot_current, self.bmot_ramp_duration)
         delay(self.bmot_load_duration)
-        self.aom_3D_red.sw.on()
-        delay(self.bmot_load_duration)
+        
         
        # line trigger for consistent time relative to mains
         self.line_trigger()
         delay(150*ms)
         
-        
+        self.aom_3D_red.sw.off()
         # ramp up blue MOT current and attenuation
         tramp = 50*ms
         binc = 1.0
@@ -644,53 +761,44 @@ class _Cooling(EnvExperiment):
             self.dac_set(0,  self.bmot_current + binc/tramp*step*dt)
             self.aom_3D_blue.set_att(6+24*step/int(self.Npoints))
             delay(dt)
-        
-        self.aom_3D_red.sw.off()
-        self.aom_3D_red.set_amplitude(0.8)
-        
-        # turn on broad band red mot (profile 0)
-        self.urukul1_cpld.set_profile(0)
-        self.aom_3D_red.cpld.io_update.pulse_mu(8)
-        delay(5*us)
-        self.aom_3D_red.sw.on()
-        
+
         # turn off blue light
         self.atom_source_off()
         self.aom_3D_blue.sw.off()
-        delay(0.5*us)
         
-        # ramp up to broad band red mot current and hold
-        self.Blackman_ramp(self.bmot_current + binc, self.rmot_bb_current, 40*ms)
+        # turn on broad band red mot (profile 0)
+        self.aom_3D_red.cpld.set_profile(1)
+        self.aom_3D_red.set_amplitude(0.8)
+        self.aom_3D_red.sw.on()
+        delay(5*us)        
+        # ramp up to broad band red mot current and hold`
+        self.Blackman_ramp(self.bmot_current + binc, self.rmot_bb_current, 15*ms)
         delay(self.rmot_bb_duration)
         
         # turn off repumpers
         self.aom_3P0.sw.off()
         self.aom_3P2.sw.off()
         
-        atten_scale_factor = 2.67
+        atten_scale_factor=3.0
         with parallel:
             self.linear_ramp(self.rmot_bb_current, self.rmot_sf_current, self.rmot_ramp_duration, self.Npoints)
             with sequential:
                 for p in range(int(self.nprofiles)):
-                    self.aom_3D_red.cpld.set_profile(p)
+                    self.aom_3D_red.cpld.set_profile(p+1)
                     self.aom_3D_red.set_att(self.atten_3D_red+atten_scale_factor*p)
                     delay(self.rmot_ramp_duration/self.nprofiles)
 
-        # switch to single frequency mode then hold        
-        if sf:
-            self.aom_3D_red.cpld.set_profile(7)
-            self.aom_3D_red.set_amplitude(0.05)
 
-            sf_atten=21
-            self.aom_3D_red.set_att(self.atten_3D_red+sf_atten)
-
-            #self.aom_3D_red.set_att(self.atten_3D_red+16)
-            delay(self.rmot_sf_duration)
         self.aom_3D_red.sw.off()
-
+        delay(10*us) #Makes sure that the aom is fully switched off before the magnetic field ramps down.
         self.urukul1_cpld.set_profile(0)
-
-        self.Blackman_ramp(self.rmot_sf_current, 0.0, 20*ms)
+        
+        if dipole_on == True:
+            self.Blackman_ramp(self.rmot_sf_current, 0.0, 5*ms)
+        else:
+            self.coils_off()
+        
+        self.open_688() # open 688 shutter to allow for excitation
         
         
     @kernel 
@@ -701,102 +809,7 @@ class _Cooling(EnvExperiment):
         self.aom_3D_red.sw.on()
         delay(t)
         self.aom_3D_red.sw.off()
-        
-    @kernel
-    def rMOT_pulse(self, sf = True, real=True):
-
-        self.atom_source_on()
-        if real:
-            self.AOMs_on(["3D", "3P0_repump", "3P2_repump"])
-        self.set_current_dir(0)
-        
-        
-        
-        self.dac_0.write_dac(2,9.9)
-        self.dac_0.load()
-
-        self.Blackman_ramp_up()
-        self.hold(self.bmot_load_duration)
-        
-        #line trigger
-        self.line_trigger()
-        delay(150*ms)
-        
-        # self.ttl5.on()
-        # delay(0.5*ms)
-        # self.ttl5.off()
-        # delay(0.5*ms)
-        ### Ramp transfer sequence
-        self.ttl6.off() #start in broadband mode
-        tramp = 25*ms
-        binc = 1.0
-        dt = tramp/int(self.Npoints)
-        for step in range(1, int(self.Npoints)):
-            self.dac_0.write_dac(0, self.bmot_current + binc/tramp*step*dt)
-            self.dac_0.load()
-            self.set_AOM_attens([("3D",6+24*step/int(self.Npoints))])
-            delay(dt)
-        self.dac_0.write_dac(0, self.bmot_current + binc)
-        self.dac_0.load()
-        
-        ##########################
-
-        self.atom_source_off()
-        self.AOMs_off(['3D'])
-        delay(0.5*us)
-        
-        # ## Broadband Ramp transfer sequence
-        # self.ttl6.off() #start in broadband mode
-        # tramp = 5*ms
-        # dt = tramp/int(self.Npoints)
-        # for step in range(1, int(self.Npoints)):
-        #     self.dac_0.write_dac(0, self.bmot_current + 1.0 - (self.bmot_current + 1.0-self.rmot_bb_current)/tramp*step*dt)
-        #     self.dac_0.load()
-        #     delay(dt)
-        # #########################
-
-        self.Blackman_ramp(self.bmot_current + binc, self.rmot_bb_current, 20*ms)
-        #self.set_current(self.rmot_bb_current)
-
-
-        delay(self.rmot_bb_duration)
-        
-
-        self.AOMs_off(["3P0_repump","3P2_repump"])
-        if real:
-            self.AOMs_on(["3D_red"])
-        self.linear_ramp(self.rmot_bb_current, self.rmot_sf_current, self.rmot_ramp_duration, self.Npoints)
-
-        #self.bb_det_ramp(20*ms, self.Npoints)
-        
-        
-        # # Signle-frequency transfer sequence
-        # self.set_AOM_attens([("3D_red",8.0)])
-        # self.ttl6.on() #switch to single frequency with RF switch
-        # if sf:
-        #     tramp = 10*ms
-        #     dt = tramp/10
-        #     for step in range(1, 11):
-        #         self.set_AOM_freqs([("3D_red",self.freq_3D_red-(1-step/10)*0.250*MHz)])
-        #         delay(dt/2)
-        #         self.set_AOM_attens([("3D_red",8.0+10*step/10)])
-        #         delay(dt/2)
-        #     #delay(self.rmot_sf_duration)
-        #     delay(5*ms)
-
-        self.ttl6.on() #switch to single frequency with RF switch
-        if sf:
-            delay(self.rmot_sf_duration)
-
-        self.AOMs_off(["3D_red"])
-
-        # 
-        if sf:
-            #self.Blackman_ramp(self.rmot_sf_current, 0.0, 20*ms)
-            self.set_current(0.0)
-        else:
-            self.set_current(0.0)
-            
+                   
 
     @kernel
     def take_background_image_exp(self, cam):

@@ -20,7 +20,7 @@ from BraggClass import _Bragg
 from repository.models.scan_models import AI_Rabi_Model as myModel
 
 
-class ClockExcitation_exp(Scan1D, TimeFreqScan, EnvExperiment):
+class ClockExcitationSimul_exp(Scan1D, TimeFreqScan, EnvExperiment):
     
     def build(self, **kwargs):
         # required initializations
@@ -28,7 +28,7 @@ class ClockExcitation_exp(Scan1D, TimeFreqScan, EnvExperiment):
         super().build(**kwargs)
         
         self.setattr_device("ttl5") # triggering pulse
-        self.setattr_device("ttl1") 
+        self.setattr_device("ttl1")
         # import classes for experiment control
         self.MOTs = _Cooling(self)
         self.Camera = _Camera(self)
@@ -57,6 +57,8 @@ class ClockExcitation_exp(Scan1D, TimeFreqScan, EnvExperiment):
         self.setattr_argument("free_space",BooleanValue(False),"Params")
         self.setattr_argument("B_field", NumberValue(0.36,min=0.0,max=2,scale=1,
                       unit="V", ndecimals=3),"Params")
+        
+        self.ind=0
         
         
         
@@ -127,21 +129,39 @@ class ClockExcitation_exp(Scan1D, TimeFreqScan, EnvExperiment):
         self.State_Control.AOMs_off_all()
         delay(1*ms)
         
-        if self.excited_state=='3P1':
-            self.State_Control.set_AOM_freq_689(frequency, self.State_Control.scale_689)
+        # if self.ind%2==0:
+        #     self.State_Control.set_AOM_freq_689(frequency-250*Hz, self.State_Control.scale_689)
+        # else:
+        #     self.State_Control.set_AOM_freq_689(frequency+250*Hz, self.State_Control.scale_689)
+        # self.ind=self.ind+1
         
-        elif self.excited_state=='3P0':   
-            self.State_Control.set_AOM_freq_689(self.State_Control.freq_689, self.State_Control.scale_689)
-            self.State_Control.set_AOM_freq_688(self.State_Control.freq_688, self.State_Control.scale_688)
-            self.State_Control.set_AOM_freq_679(frequency, self.State_Control.scale_679)
-            delay(1*ms)
-        else:
-            raise Exception('Not Valid State')        
-        delay(35*ms)
+        # if self.ind%4==0:
+        #     self.State_Control.set_AOM_freq_689(frequency-250*Hz, self.State_Control.scale_689)
+        # elif self.ind%4==1:
+        #     self.State_Control.set_AOM_freq_689(frequency, self.State_Control.scale_689)
+        # elif self.ind%4==2:
+        #     self.State_Control.set_AOM_freq_689(frequency+250*Hz, self.State_Control.scale_689)
+        # else:
+        #     self.State_Control.set_AOM_freq_689(frequency+1*MHz, self.State_Control.scale_689)
+        # self.ind=self.ind+1
+        
+        self.State_Control.set_AOM_freq_689(frequency, self.State_Control.scale_689)
+        self.State_Control.set_AOM_freq_688(self.State_Control.freq_688, self.State_Control.scale_688)
+        self.State_Control.set_AOM_freq_679(self.State_Control.freq_679, self.State_Control.scale_679)
         
         
         # generate red mot
+        self.MOTs.close_688() # turn off 688 nm
         self.MOTs.rMOT_pulse_new()
+        
+        # self.Bragg.aom_dipole.set_att(15.0)
+        # self.Bragg.aom_lattice.set_att(30.0)
+        
+        # # generate red mot
+        # self.MOTs.rMOT_pulse_new(dipole_on=False)
+        
+        # self.Bragg.aom_dipole.set_att(self.Bragg.atten_Dipole)     
+        # self.Bragg.aom_lattice.set_att(3.0)
         # load into dipole trap and perform molasses (if selected)
         # Total time for this sequence needs to be >~ 40 ms for cavity shaking to stop.
         with parallel:
@@ -152,7 +172,18 @@ class ClockExcitation_exp(Scan1D, TimeFreqScan, EnvExperiment):
         else:
             delay(self.dipole_load_time/3)
         self.MOTs.Blackman_ramp(0.0, self.B_field,self.dipole_load_time/3) # set bias field so 3P1 m=+1 is ~40MHz separated.
-        delay(5*ms)
+        with parallel:
+            self.MOTs.open_688() # turn off 688 nm
+            delay(5*ms)
+        
+        # self.Bragg.aom_dipole.set_att(30.0) # turn off dipole
+        # self.Bragg.aom_lattice.sw.off() #turn off lattice
+        #delay(2*ms)
+        
+        # focus for variable time
+        # self.Bragg.aom_dipole.set_att(self.Bragg.atten_Dipole) # turn off dipole
+        #delay(1.25*ms)
+        
             
         if self.free_space:
             self.Bragg.aom_dipole.set_att(30.0 )
@@ -192,67 +223,44 @@ class ClockExcitation_exp(Scan1D, TimeFreqScan, EnvExperiment):
 
         # -----  3P0 EXCITATION -----------------------
         elif self.excited_state=='3P0':
-            
-            if self.cavity_clear:
-                self.ttl5.on()       # for triggering start
-                self.State_Control.set_AOM_freq_679(self.State_Control.freq_679, self.State_Control.scale_679)
 
-                # prepare in 3P0
-                self.State_Control.pulse_689(self.pi_time_689)
-                delay(0.05*us)
-                with parallel:
-                    self.State_Control.pulse_679(self.pi_time_Raman)
-                    self.State_Control.pulse_688(self.pi_time_Raman)
-            
-                ##### CLEAR CAVITY ################
-                with parallel:
-                    self.State_Control.cav_clear_pulse(2.5*ms)
-                    self.State_Control.set_AOM_freq_679(frequency, self.State_Control.scale_679)
+            self.ttl5.on()       # for triggering start
 
-                with parallel:
-                    self.State_Control.pulse_679(self.pi_time_Raman)
-                    self.State_Control.pulse_688(self.pi_time_Raman)
-                #delay(0.3*us)
-                delay(0.25*us)
-    
-                self.State_Control.pulse_689(self.pi_time_689)
-                #self.MOTs.close_688() # turn off 688 nm
+            # with parallel:
+            #     self.State_Control.pulse_679(time)
+            #     self.State_Control.pulse_688(time)
+            #     with sequential:
+            #         delay(170*ns)
+            #         self.State_Control.pulse_689(time)
+            delay(3000*us)
+            with parallel:
+                self.State_Control.pulse_679(time)
+                self.State_Control.pulse_688(time)
+                with sequential:
+                    delay(90*ns)
+                    self.State_Control.pulse_689(time)
                 
-                ###repumping....?
-                self.MOTs.aom_3P0.sw.on()
-                self.MOTs.aom_3P2.sw.on()
-                delay(.5*ms)
-                self.MOTs.aom_3P0.sw.off()
-                self.MOTs.aom_3P2.sw.off()
                 
-                self.ttl5.off()
-
-                ### Rabi flop from ground
-                self.State_Control.pulse_689(self.pi_time_689)
-                delay(0.05*us)
+             ################# RAMSEY TIME SCAN #####################  
+            # with parallel:
+            #     self.State_Control.pulse_679(self.pi_time_Raman+400*ns)
+            #     self.State_Control.pulse_688(self.pi_time_Raman+400*ns)
+            #     with sequential:
+            #         delay(370*ns)
+            #         self.State_Control.pulse_689(self.pi_time_Raman)
+                    
+            # delay(time)
+                    
+            # with parallel:
+            #     self.State_Control.pulse_679(self.pi_time_Raman+400*ns)
+            #     self.State_Control.pulse_688(self.pi_time_Raman+400*ns)
+            #     with sequential:
+            #         delay(370*ns)
+            #         self.State_Control.pulse_689(self.pi_time_Raman)
                 
-                with parallel: # Raman pulse
-                    self.State_Control.pulse_679(time)
-                    self.State_Control.pulse_688(time)
-                #delay(200*us) # let 3P1 decay to 1S0
-
-            else:    
-                
-                self.ttl5.on()       # for triggering start
-                self.State_Control.pulse_689(self.pi_time_689)
-                delay(0.05*us)
-                with parallel:
-                    self.State_Control.pulse_679(time)
-                    self.State_Control.pulse_688(time)
-
-
             self.ttl5.off()
             self.readout(scheme=self.readout_scheme)
-                
-                
- 
-        else:
-            raise Exception('Not Valid State')
+
 
         
         

@@ -135,8 +135,27 @@ class _Bragg(EnvExperiment):
             atten = self.atten_Lattice + ((end-self.atten_Lattice)/time)*step*dt
             self.aom_lattice.set_att(atten)
             delay(dt)
-        self.atten[3] = end
+        #self.atten[3] = end
 
+    @kernel
+    def dipole_rampdown(self, end, time):
+        dt = time/31
+        for step in range(int(31)):
+            atten = self.atten_Dipole + ((end-self.atten_Dipole)/time)*step*dt
+            self.aom_dipole.set_att(atten)
+            delay(dt)
+        #self.atten[3] = end
+        
+    @kernel
+    def dipole_lattice_rampdown(self, end, time):
+        dt = time/101
+        for step in range(int(31)):
+            atten = self.atten_Dipole + ((end-self.atten_Dipole)/time)*step*dt
+            self.aom_dipole.set_att(atten)
+            delay(dt/2)
+            atten = self.atten_Lattice + ((end-self.atten_Lattice)/time)*step*dt
+            self.aom_lattice.set_att(atten)
+            delay(dt/2)
 
     
 

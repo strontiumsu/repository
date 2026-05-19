@@ -108,32 +108,20 @@ class DipoleTrapFrequency_exp(Scan1D, TimeScan, EnvExperiment):
         delay(self.load_time)
 
 
-        self.Bragg.aom_dipole.set_att(30.0)
+        self.Bragg.aom_dipole.set_att(26.0)
         self.Bragg.aom_lattice.sw.off()
 
 
         delay(self.wait_time)  # drop time
         
         self.Bragg.aom_dipole.set_att(self.Bragg.atten_Dipole)
-        #self.Bragg.aom_lattice.sw.on()
-        
-        
+
         delay(t_delay)
         
-        self.Bragg.aom_dipole.set_att(30.0)
-        #self.Bragg.aom_lattice.sw.off()
-
-
-        delay(self.wait_time)  # drop time
-        
-        self.Bragg.aom_dipole.set_att(self.Bragg.atten_Dipole)
-       #self.Bragg.aom_lattice.sw.on()
-        
-        delay(1*ms)
         
         
         self.MOTs.take_MOT_image(self.Camera) # image after variable drop time
-        
+        self.Bragg.aom_dipole.set_att(self.Bragg.atten_Dipole)
         
 
         delay(10*ms)

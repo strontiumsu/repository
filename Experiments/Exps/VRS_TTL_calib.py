@@ -183,32 +183,36 @@ class VRS_TTL_calib_exp(Scan1D, EnvExperiment):
           # might just have to do once ??
           # for some reason cant get it to work if we do in before_scan
         self.MOTs.init_rmot_dds(self.MOTs.rmot_freq_i, self.MOTs.rmot_freq_f,  self.MOTs.rmot_freq_depth_i, self.MOTs.rmot_freq_depth_f, self.MOTs.freq_3D_red)
-        delay(5*ms)
+        delay(15*ms)
+        self.core.break_realtime()
         self.load_scan(self.scan_dds_sb,self.freq_center_sb,self.freq_width_sb,self.scan_time_sb)
         delay(10*ms)
+        self.core.break_realtime()
         self.load_scan(self.scan_dds_car,self.freq_center_car,self.freq_width_car,self.scan_time_car)
         delay(10*ms)
+        self.core.break_realtime()
         self.freeze_RAM(self.scan_dds_car, 511, 511, self.scan_time_car)
         delay(10*ms)
         self.core.break_realtime()
         
         ##### FORM ATOM SAMPLE ################
         # generate red mot
-        self.MOTs.close_688() # close 688 shutter to prevent leakage from optical pumping
-        delay(10*ms)
-        self.MOTs.open_repumpers() #TTL to 679 repumper shutter 
         self.MOTs.rMOT_pulse_new()
-        self.MOTs.open_688()
-        
-        with parallel: # load dipole trap while switching field
-            delay(self.dipole_load_time)
-            self.MOTs.set_current_dir(1)                
-        self.MOTs.Blackman_ramp(0.0, self.B_field, 20*ms)
+        # load into dipole trap and perform molasses (if selected)
+        # Total time for this sequence needs to be >~ 40 ms for cavity shaking to stop.
+        with parallel:
+            delay(self.dipole_load_time/3) 
+            self.MOTs.set_current_dir(1) # let MOT field go to zero and switch H-bridge, 15ms        
+        if self.MOTs.molasses:
+            self.MOTs.molasses_pulse(freq=self.MOTs.molasses_frequency, amp=0.1, t=self.dipole_load_time/3)
+        else:
+            delay(self.dipole_load_time/3)
+        self.MOTs.Blackman_ramp(0.0, self.B_field,self.dipole_load_time/3) # set bias field so 3P1 m=+1 is ~40MHz separated.
+        delay(5*ms)
             
                 
             
         if self.Cavity_clear:        
-            delay(5*ms)
             ##### EXCITATION ################
             self.State_Control.pulse_689(self.pi_time_689)
             delay(0.15*us)
@@ -264,8 +268,8 @@ class VRS_TTL_calib_exp(Scan1D, EnvExperiment):
             idx = int((t_edge - t_start) // self.step_mu_sb)
             
             delay(35*us)
-            self.freeze_RAM(self.scan_dds_sb, idx + int(point) ,idx + int(point), self.scan_time_car)
-            # self.freeze_RAM(self.scan_dds_sb, idx-15 ,idx -15, self.scan_time_car)
+            #self.freeze_RAM(self.scan_dds_sb, idx + int(point) ,idx + int(point), self.scan_time_car)
+            self.freeze_RAM(self.scan_dds_sb, idx-30 ,idx -30, self.scan_time_car)
             delay(35*us)
             self.freeze_RAM(self.scan_dds_car,0,1023, self.scan_time_car)
             delay(35*us)
@@ -273,13 +277,14 @@ class VRS_TTL_calib_exp(Scan1D, EnvExperiment):
             #measure
             self.probe_pulse(self.scan_time_car)
           
-            # with parallel:
-            #     delay(100*us)
-            #     with sequential:
-            #         self.freeze_RAM(self.scan_dds_sb, idx + int(point), idx + int(point), self.scan_time_car)
-            #         delay(35*us)
-            #         self.freeze_RAM(self.scan_dds_car,0,1023, self.scan_time_car)
-            # self.probe_pulse(self.scan_time_car)
+            with parallel:
+                delay(100*us)
+                with sequential:
+                    #self.freeze_RAM(self.scan_dds_sb, idx + int(point), idx + int(point), self.scan_time_car)
+                    self.freeze_RAM(self.scan_dds_sb, idx -62, idx-52, self.scan_time_car)
+                    delay(35*us)
+                    self.freeze_RAM(self.scan_dds_car,0,1023, self.scan_time_car)
+            self.probe_pulse(self.scan_time_car)
                 
 
                   
@@ -306,7 +311,7 @@ class VRS_TTL_calib_exp(Scan1D, EnvExperiment):
         self.ttl0.count(t_end) 
         
         delay(10*ms)
- 
+        delay(5*s)
         self.core.wait_until_mu(now_mu())        
         return 0
     

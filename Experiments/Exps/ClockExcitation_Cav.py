@@ -5,339 +5,385 @@ Created on Tue Jan 21 13:37:31 2025
 @author: sr
 """
 
-from scan_framework import Scan1D, TimeFreqScan
 from artiq.experiment import *
+from scan_framework import Scan1D, TimeFreqScan
 import numpy as np
-import pyvisa
-
-
+from artiq.coredevice import ad9910
 
 from CoolingClass import _Cooling
-from CameraClass import _Camera
-
-from StateControlClass import _state_control
 from BraggClass import _Bragg
-from repository.models.scan_models import AI_Rabi_Model as myModel
+from CameraClass import _Camera
+from StateControlClass import _state_control
+from repository.models.scan_models import RamseyPhaseModel as myModel
 
+import time
 
-class ClockExcitation_Cav_exp(Scan1D, TimeFreqScan, EnvExperiment):
+class ClockExcitation_Cav_exp(Scan1D, EnvExperiment):
     
     def build(self, **kwargs):
-        # required initializations
         
         super().build(**kwargs)
         
-        self.setattr_device("ttl5") # triggering pulse
-        self.setattr_device("ttl1")
-        # import classes for experiment control
+        # hardware and class objects
+        self.setattr_device("ttl5")
         self.MOTs = _Cooling(self)
-        self.Camera = _Camera(self)
-        self.State_Control = _state_control(self)
         self.Bragg = _Bragg(self)
+        self.State_Control = _state_control(self)
+        self.Camera = _Camera(self)
         
-        self.enable_pausing = True # disable to speed up by not checking scheduler
-        self.enable_auto_tracking=False
-        self.enable_profiling = False # enable to print runtime statistics to find bottlenecks
-
-        self.scan_arguments(times = {'start':0*us,'stop':1.5*us,'npoints':20,'unit':"us",'scale':us,'global_step':0.1*us,'ndecimals':4},
-             frequencies={'start':-3*MHz,'stop':3*MHz,'npoints':50,'unit':"MHz",'scale':MHz,'global_step':0.1*MHz,'ndecimals':4},
-            frequency_center={'default':100*MHz}, pulse_time= {'default':0*us},nbins = {'default':1000},nrepeats = {'default':1},npasses = {'default':1},fit_options = {'default': "No Fits"} )
         
-        self.setattr_argument("dipole_load_time", NumberValue(40.0*1e-3,min=0.0*1e-3,max=9000.00*1e-3,scale=1e-3,
-                      unit="ms"),"Params")
+        #pulse phases
+        self.setattr_argument('pulse_phase',
+            Scannable(default=RangeScan(
+            start=0.0,
+            stop=2.0,
+            npoints=20),
+            scale=1,
+            ndecimals=2,
+            unit="Turns", ), 'Params')
+                
         
-        self.setattr_argument("pi_time_689", NumberValue(0.15*1e-6,min=0.0*1e-6,max=1000.00*1e-6,scale=1e-6,ndecimals=3,
-                      unit="us"),"Params")
-        self.setattr_argument("pi_time_Raman", NumberValue(0.55*1e-6,min=0.0*1e-6,max=1000.00*1e-6,scale=1e-6,ndecimals=3,
-                      unit="us"),"Params")
+        self.scan_arguments(
+                            nbins = {'default':1000}, 
+                            nrepeats = {'default':1},
+                            npasses = {'default':1},
+                            fit_options = {'default':"No Fits"} 
+                            )
         
-        self.setattr_argument("excited_state", EnumerationValue(['3P1', "3P0"], default='3P1'), "Params")
-        self.setattr_argument("readout_scheme", EnumerationValue(["0","1","2"], default="0"), "Params")
-        self.setattr_argument("cavity_clear",BooleanValue(False),"Params")
-        self.setattr_argument("free_space",BooleanValue(False),"Params")
-        self.setattr_argument("B_field", NumberValue(0.36,min=0.0,max=2,scale=1,
-                      unit="V", ndecimals=3),"Params")
-        
+        #parameters
+        self.setattr_argument("B_field", NumberValue(0.21,min=0.0,max=2,scale=1, unit="V", ndecimals=3),"parameters")
+        self.setattr_argument("pi_time_689", NumberValue(1.0*1e-6,min=0.0*1e-6,max=1000.00*1e-6,scale=1e-6, unit="us"),"parameters")
+        self.setattr_argument("pi_time_Ramsey", NumberValue(1.0*1e-6,min=0.0*1e-6,max=1000.00*1e-6,scale=1e-6,unit="us"),"parameters")
+        self.setattr_argument("dipole_load_time", NumberValue(60.0*1e-3,min=0.0*1e-3,max=9000.00*1e-3,scale=1e-3, unit="ms"),"parameters")
         
         # VRS Scan args
         self.setattr_argument("freq_center", NumberValue( 3*1e6,min=0.1*1e6, max=200.0*1e6,scale=1e6, unit="MHz",ndecimals = 3),"parameters")
         self.setattr_argument("freq_width", NumberValue( 1*1e6,min=-10*1e6, max=50.0*1e6,scale=1e6, unit="MHz",ndecimals = 3),"parameters")     
         self.setattr_argument("scan_time", NumberValue( 100*1e-6,min=1*1e-6, max=100000.0*1e-6,scale=1e-6, unit="us",ndecimals = 3),"parameters")
         self.setattr_argument("Scan_Ch", EnumerationValue(["Carrier", "Sideband"], default='Carrier'), "parameters")
+        self.setattr_argument("delay_time", NumberValue(60.0*1e-3,min=0.0*1e-3,max=10.00*1e-3,scale=1e-3,
+                      unit="ms"),"Params")
         
+        # boolean args
+        self.setattr_argument("Pre_measure", BooleanValue(True), "parameters")
+        self.setattr_argument("Cavity_clear", BooleanValue(True), "parameters")
+        self.setattr_argument("Calibrate", BooleanValue(True), "parameters")
+        self.setattr_argument("Image", BooleanValue(False), "parameters")
+        
+                
         # Prep DDS scan
         self.freq_list= np.linspace(0.0*MHz, 0.0*MHz, 1024)
         self.freq_list_ram = np.full(1024, 1)
         self.step_size=0
         self.scan_dds = self.Bragg.aom_carrier
-        
-        
+                
+        self.t0 = np.int64(0)
+
+    def get_scan_points(self):
+        return self.pulse_phase  
+            
     def prepare(self):
-        #prepare/initialize mot hardware and camera
         self.MOTs.prepare_aoms()
+        self.MOTs.prepare_coils()
         self.Bragg.prepare_aoms()
         self.State_Control.prepare_aoms()
         
-        self.MOTs.prepare_coils()
-        
-        self.Camera.camera_init(scheme = 0)
-        
-        
+        self.Camera.camera_init()
         self.enable_histograms = True
         self.model = myModel(self)
         self.register_model(self.model, measurement=True, fit=True)
+     
         
+        if self.freq_width/2 > self.freq_center: raise Exception("Bad Range...")
+        if self.Calibrate and self.Image: raise Exception("Cannot Image Cloud and Calibrate Bare Cavity Simultaneously...")
+        if not( self.Cavity_clear or self.Pre_measure): raise Exception("Must Include Either Pre-Measure or Cavity Clear Measurement...")
+        if self.Scan_Ch == "Sideband": self.scan_dds = self.Bragg.aom_sideband
+        
+    
     @kernel
     def before_scan(self):
-        # runs before experiment take place
-        
         self.core.reset()
-        delay(10*ms)
+
+        # set hardware in known states and initialize
         self.ttl5.off()
         self.MOTs.init_coils()
         self.MOTs.init_ttls()
-        
-        #init AOMs
-        self.MOTs.init_aoms(on=False)  
+        self.MOTs.init_aoms(on=False)
         self.State_Control.init_aoms(on=False)
-        self.Bragg.init_aoms()
-        
+        self.Bragg.init_aoms(switches=0x9)
         delay(10*ms)
         
-        #MOT Config
+        if self.Image:
+
+            self.MOTs.take_background_image_exp(self.Camera)
+            self.core.break_realtime()
+            delay(5*ms)
+        
         self.MOTs.set_current_dir(0)
         delay(10*ms)
-        
-        self.MOTs.take_background_image_exp(self.Camera)
-        
-        # Warm up before exp
-        delay(50*ms)
+
+
+
         self.core.wait_until_mu(now_mu())
-        
+    
     def before_measure(self, point, measurement):
-        self.Camera.arm()
- 
+        if self.Image:
+            self.Camera.arm()
+    
     @kernel
-    def measure(self, time, frequency):        
-        
-        
-        #prepare
+    def measure(self, point):
+        #offset = point / (1*kHz)
+        #offset = 0 * ms
+          #prepare
         self.core.wait_until_mu(now_mu())
         self.core.reset()
         
-        self.MOTs.init_rmot_dds(self.MOTs.rmot_freq_i, self.MOTs.rmot_freq_f,  self.MOTs.rmot_freq_depth_i, self.MOTs.rmot_freq_depth_f, self.MOTs.freq_3D_red)
+        delay(10*ms)
+        self.t0 = now_mu()
+        # sets the phase for everything, 
+        self.set_phases(point)
 
-        delay(1*ms)
+        self.MOTs.carrier_off()
+        delay(50*ms)
+        
+        ##### PREP EXP ################
+        self.MOTs.init_rmot_dds(self.MOTs.rmot_freq_i, self.MOTs.rmot_freq_f,  self.MOTs.rmot_freq_depth_i, self.MOTs.rmot_freq_depth_f, self.MOTs.freq_3D_red)
+        delay(5*ms)
         
         self.core.break_realtime()
         delay(10*ms)
+        self.load_scan()
+        delay(10*ms)
+        self.core.break_realtime()
+        delay(10*ms)
+        
+        
+        ##### ENSURE KNOWN STATES ################
+        self.MOTs.AOMs_off_all()
+        self.State_Control.AOMs_off_all()
+        
+        delay(1*ms)
+         
+        self.State_Control.aom_689.set(frequency=self.State_Control.freq_689, amplitude=0.8)
+        self.State_Control.aom_688.set(frequency=self.State_Control.freq_688, amplitude=0.8)
+        self.State_Control.aom_679.set(frequency=self.State_Control.freq_679, amplitude=0.8)
+        
+        delay(1*ms)
+        
+        self.Bragg.aom_sideband.set_att(self.Bragg.atten_Sideband)
+        self.Bragg.aom_carrier.set_att(self.Bragg.atten_Carrier)
+        self.MOTs.aom_3D_blue.set_att(self.MOTs.atten_3D)
+        delay(1*ms)
+        
+        
+        
+        ##### FORM ATOM SAMPLE ################
+        
+        # generate red mot
+        self.MOTs.close_688() # turn off 688 nm
+        self.MOTs.rMOT_pulse_new()
+        
+        # load into dipole trap and perform molasses (if selected)
+        # Total time for this sequence needs to be >~ 40 ms for cavity shaking to stop.
+        with parallel:
+            delay(self.dipole_load_time/3) 
+            self.MOTs.set_current_dir(1) # let MOT field go to zero and switch H-bridge, 15ms        
+        if self.MOTs.molasses:
+            self.MOTs.molasses_pulse(freq=self.MOTs.molasses_frequency, amp=0.1, t=self.dipole_load_time/3)
+        else:
+            delay(self.dipole_load_time/3)
+        self.MOTs.Blackman_ramp(0.0, self.B_field,self.dipole_load_time/3) # set bias field so 3P1 m=+1 is ~40MHz separated.
+        with parallel:
+            self.MOTs.open_688() # turn off 688 nm
+            delay(5*ms)
+       
+        
+        ##### PREMEASURE ###############
+        if self.Pre_measure:    
+            self.scan_probe(self.scan_time)
 
         
+        if self.Cavity_clear:
+            # Sequential excitation
+            # ##### PREP 3P0 ################
+            self.State_Control.pulse_689(self.pi_time_689)
+            delay(0.05*us)
+            with parallel:
+                self.State_Control.pulse_679(self.pi_time_Ramsey)
+                self.State_Control.pulse_688(self.pi_time_Ramsey)
+        
+            # ##### CLEAR CAVITY and put back to 1S0 ################
+            self.State_Control.cav_clear_pulse(2.5*ms)
+        
+            with parallel:
+                self.State_Control.pulse_679(self.pi_time_Ramsey)
+                self.State_Control.pulse_688(self.pi_time_Ramsey)
+            delay(0.25*us)
+            self.State_Control.pulse_689(self.pi_time_689)
+            #self.MOTs.close_688() # turn off 688 nm
+
+            #self.MOTs.aom_3P0.sw.on()
+            #self.MOTs.aom_3P2.sw.on()
+            #delay(.5*ms)
+            #self.MOTs.aom_3P0.sw.off()
+            #self.MOTs.aom_3P2.sw.off()
+
+            # ##### MEASURE VRS ################
+            self.scan_probe(self.scan_time)
+            
+            
+            
+            # # RABi oscillation
+            self.State_Control.pulse_689(point*us)
+            delay(0.05*us)
+            with parallel:
+                 self.State_Control.pulse_679(self.pi_time_Ramsey)
+                 self.State_Control.pulse_688(self.pi_time_Ramsey)
+
+            
+            # ##### MEASURE VRS AGAIN ############
+            self.scan_probe(self.scan_time)
+
+            # ##### CLOSE ###########
+            # # with parallel:
+            # #     self.State_Control.pulse_679(self.pi_time_Ramsey)
+            # #     self.State_Control.pulse_688(self.pi_time_Ramsey)
+            # # #delay(0.3*us)
+            # # delay(0.25*us)
+            # # self.State_Control.pulse_689(.065*us)
+            
+            
+            # # Simultaenoues excitatiON
+            # delay(3150*us)
+            # self.State_Control.pulse_679(80*us)
+            # self.State_Control.pulse_688(80*us)
+            # with sequential:
+            #     delay(90*ns)
+            #     self.State_Control.pulse_689(80*us)
+            # ##### CLEAR CAVITY and put back to 1S0 ################
+            # self.State_Control.cav_clear_pulse(2.5*ms)
+            
+            # self.State_Control.pulse_679(80*us)
+            # self.State_Control.pulse_688(80*us)
+            # with sequential:
+            #     delay(90*ns)
+            #     self.State_Control.pulse_689(80*us)
+
+            # self.MOTs.aom_3P0.sw.on()
+            # self.MOTs.aom_3P2.sw.on()
+            # delay(.5*ms)
+            # self.MOTs.aom_3P0.sw.off()
+            # self.MOTs.aom_3P2.sw.off()
+            
+            # delay(200*us)
+            # self.scan_probe(self.scan_time)
+            
+            # self.State_Control.pulse_679(point*ms)
+            # self.State_Control.pulse_688(point*ms)
+            # with sequential:
+            #     delay(90*ns)
+            #     self.State_Control.pulse_689(point*ms)
+            
+            # ##### MEASURE VRS AGAIN ############
+            # self.scan_probe(self.scan_time)
+        
+        
+        ##### BARE CAVITY CALIB / IMAGE ################
+        if self.Calibrate:
+            self.State_Control.cav_clear_pulse(2.5*ms)
+            self.MOTs.carrier_on()
+
+            self.scan_probe(self.scan_time)
+
+        elif self.Image:
+            self.readout(scheme="1")
+            
+            self.MOTs.take_MOT_image(self.Camera)
+            delay(5*ms)
+            
+            
+        ##### CLEAN UP ################
+        self.scan_dds.set_cfr1(ram_enable=0)
+        self.scan_dds.cpld.io_update.pulse_mu(8)
+        delay(5*ms)
+        self.MOTs.Blackman_ramp(self.B_field, 0.0, 30*ms)
+        self.MOTs.set_current_dir(0)
+        delay(5*ms)
         self.MOTs.AOMs_off_all()
         self.State_Control.AOMs_off_all()
         delay(1*ms)
+        self.MOTs.carrier_off()
         
-        if self.excited_state=='3P1':
-            self.State_Control.set_AOM_freq_689(frequency, self.State_Control.scale_689)
         
-        elif self.excited_state=='3P0':   
-            self.State_Control.set_AOM_freq_689(self.State_Control.freq_689, self.State_Control.scale_689)
-            self.State_Control.set_AOM_freq_688(self.State_Control.freq_688, self.State_Control.scale_688)
-            self.State_Control.set_AOM_freq_679(frequency, self.State_Control.scale_679)
-            delay(1*ms)
+        self.core.wait_until_mu(now_mu())
+        if self.Image:     
+            self.Camera.process_image(save=True, name='',bg_sub=True)
+            delay(400*ms)        
+            return self.Camera.get_push_stats()
         else:
-            raise Exception('Not Valid State')
-            
-        
-        delay(35*ms)
-        
-        # generate red mot
-        self.MOTs.close_688() # close 688 shutter to prevent leakage from optical pumping
-        delay(10*ms)
-        self.MOTs.rMOT_pulse_new()
-        self.MOTs.open_688() # open shutter after 689 rMOT light turns off to be prepare for Raman pulse
-        if self.MOTs.molasses:
-               with parallel:
-                   self.MOTs.set_current_dir(1) 
-                   self.MOTs.molasses_pulse(freq=self.MOTs.molasses_frequency, amp=0.1, t = self.dipole_load_time)
-        else:
-            with parallel:
-                delay(self.dipole_load_time) # Needs to by >~ 40 ms for cavity shaking to stop.
-                self.MOTs.set_current_dir(1) # let MOT field go to zero and switch H-bridge, 5ms
-        
+            return 0
      
-        self.MOTs.Blackman_ramp(0.0, self.B_field, 20*ms) # set bias field so 3P1 m=+1 is ~40MHz separated.
+    def after_measure(self, point, measurement):
+        if self.Calibrate:
+            print(f"Move Cavity: {np.round((point+np.mean(np.diff(list(self.offset_freqs))))*1e-6, 3)} MHz")
+            time.sleep(1)
+
+    #helpers           
+        
+    @kernel
+    def scan_probe(self, time):
+        with parallel:
+            self.Bragg.aom_carrier.sw.on()
+            self.Bragg.aom_sideband.sw.on()
+            self.ttl5.on()
+            self.scan_dds.cpld.io_update.pulse_mu(8)
+            
+        delay(time)
+        
+        with parallel:
+            self.Bragg.aom_carrier.sw.off()
+            self.Bragg.aom_sideband.sw.off()
+            self.ttl5.off()
+        
+    
+    @kernel
+    def load_scan(self):
+        self.step_size = int(self.scan_time/(1024*4*ns))
+        f0 = self.freq_center + self.freq_width/2
+        
+    
+        f_step = self.freq_width / 1023        
+        for i in range(1024):
+            self.freq_list[i] = f0 - f_step*i
+            
+        # f_step = self.freq_width / 511       
+        # for i in range(512):
+        #     self.freq_list[i] = f0 - f_step*i
+        #     self.freq_list[-1-i] = f0 - f_step*i
+
+            
+        self.scan_dds.frequency_to_ram(self.freq_list, self.freq_list_ram)
+
+        self.core.break_realtime()
+        delay(10 * ms)
+
+
+        self.scan_dds.set_cfr1(ram_enable=0)
+        self.scan_dds.cpld.io_update.pulse_mu(8)
+
+        delay(1*ms)
+        self.scan_dds.set_profile_ram(start=0, end=1024-1, step=(self.step_size | (2**6 - 1 ) << 16),
+                                  profile=0, mode=ad9910.RAM_MODE_RAMPUP)
         delay(5*ms)
-        
-        if self.free_space:
-            self.Bragg.aom_dipole.set_att(30.0 )
-            self.Bragg.aom_lattice.sw.off()
-        
-        delay(100*us)
-       
-        # experiment        
-        # -----  3P1 EXCITATION -----------------------
-        if self.excited_state=='3P1':
-            self.ttl5.on() 
-            self.State_Control.pulse_689(time)
-            self.readout(scheme="0")
-            self.ttl5.off()
+        self.scan_dds.cpld.set_profile(0)
+        self.scan_dds.cpld.io_update.pulse_mu(8)
+        self.scan_dds.write_ram(self.freq_list_ram)
+        # prepare to enable ram and set frequency as target
+        delay(1*ms)
+        self.scan_dds.set_cfr1(internal_profile=0, ram_enable=1, ram_destination=ad9910.RAM_DEST_FTW)
+        delay(10*ms)
 
-
-        # -----  3P0 EXCITATION -----------------------
-        elif self.excited_state=='3P0':
-            
-            if self.cavity_clear:
-                self.ttl5.on()       # for triggering start
-                # prepare in 3P0
-                self.State_Control.pulse_689(self.pi_time_689)
-                delay(0.15*us)
-                with parallel:
-                    self.State_Control.pulse_679(self.pi_time_Raman)
-                    self.State_Control.pulse_688(self.pi_time_Raman)
-                # clear cavity
-                self.State_Control.cav_clear_pulse(2.5*ms)
-                self.ttl5.off()
-                
-                
-                
-                ### Repeated lasing
-                # for i in range(10):
-                #     delay(5*us)
-                #     self.ttl5.on()
-                #     self.MOTs.aom_3P2.sw.on()
-                #     self.MOTs.aom_3P0.sw.on()
-                #     delay(10*us)
-                #     self.MOTs.aom_3P2.sw.off()
-                #     self.MOTs.aom_3P0.sw.off()
-                #     with parallel:
-                #         self.State_Control.pulse_679(self.pi_time_Raman)
-                #         self.State_Control.pulse_688(self.pi_time_Raman)
-                #     delay(50*us)
-
-                #     self.ttl5.off()       # for triggering start
-                #     # prepare in 3P0
-                #     self.State_Control.pulse_689(self.pi_time_689)
-                #     delay(0.15*us)
-                #     with parallel:
-                #         self.State_Control.pulse_679(self.pi_time_Raman)
-                #         self.State_Control.pulse_688(self.pi_time_Raman)
-                #     # clear cavity
-                #     self.State_Control.cav_clear_pulse(100*us)
-                #     delay(100*us)
-                    
-
-                ### Rabi flop from 3P0
-                with parallel: # Raman pulse
-                    self.State_Control.pulse_679(time)
-                    self.State_Control.pulse_688(time)
-                delay(0.3*us)
-                self.State_Control.pulse_689(self.pi_time_689)
-                delay(200*us) # let 3P1 decay to 1S0
-                
-                ### Cheap Ramsey time scan
-                # with parallel: # Raman pulse
-                #     self.State_Control.pulse_679(0.374*us)
-                #     self.State_Control.pulse_688(0.374*us)
-                # delay(0.3*us)
-                # self.State_Control.pulse_689(self.pi_time_689)
-                
-                # delay(time)
-                
-                # self.State_Control.pulse_689(self.pi_time_689)
-                # delay(0.15*us)
-                # with parallel:
-                #     self.State_Control.pulse_679(0.374*us)
-                #     self.State_Control.pulse_688(0.374*us)
-                # delay(200*us) # let 3P1 decay to 1S0
-                
-            
-                
-            else:    
-                
-                self.ttl5.on()       # for triggering start
-                self.State_Control.pulse_689(self.pi_time_689)
-                delay(0.15*us)
-                with parallel:
-                    self.State_Control.pulse_679(time)
-                    self.State_Control.pulse_688(time)
-                
-                ############## Ramsey with Echo
-                
-                # self.ttl5.on()       # for triggering start
-                
-                # self.State_Control.pulse_689(self.pi_time_689/2)
-                # delay(0.15*us)
-                # with parallel:
-                #     self.State_Control.pulse_688(self.pi_time_Raman)
-                #     self.State_Control.pulse_679(self.pi_time_Raman)
-                    
-                # delay(25*us)
-                # ### Procedure 2
-                # # with parallel:
-                # #     self.State_Control.pulse_688(self.pi_time_Raman)
-                # #     self.State_Control.pulse_679(self.pi_time_Raman)
-                # # delay(0.35*us)
-                # # self.State_Control.pulse_689(self.pi_time_689)
-                # # delay(0.15*us)
-                # # with parallel:
-                # #     self.State_Control.pulse_688(self.pi_time_Raman)
-                # #     self.State_Control.pulse_679(self.pi_time_Raman)
-                    
-                # #delay(time)
-                # with parallel:
-                #     self.State_Control.pulse_688(self.pi_time_Raman)
-                #     self.State_Control.pulse_679(self.pi_time_Raman)
-                # delay(0.35*us)
-                # self.State_Control.pulse_689(self.pi_time_689/2)
-            
-                # # delay(2*ms)
-                # # self.ttl5.on()       # for triggering start
-                # # self.State_Control.pulse_689(self.pi_time_689/2)
-                # # delay(0.15*us)
-                # # with parallel:
-                # #     self.State_Control.pulse_679(self.pi_time_Raman)
-                # #     self.State_Control.pulse_688(self.pi_time_Raman)
-                    
-                # # delay(time)
-                
-                # # with parallel:
-                # #     self.State_Control.pulse_679(self.pi_time_Raman)
-                # #     self.State_Control.pulse_688(self.pi_time_Raman)
-                # # delay(0.35*us)
-                # # self.State_Control.pulse_689(self.pi_time_689/2)
-                
-            
-            self.ttl5.off()
-            
-            self.readout(scheme=self.readout_scheme)
-                
- 
-        else:
-            raise Exception('Not Valid State')
-
-        
-        
-        
-        # image and reset for next shot
-        self.MOTs.take_MOT_image(self.Camera)  
-        self.Bragg.aom_dipole.set_att(self.Bragg.atten_Dipole)
-        self.Bragg.aom_lattice.sw.on()
-        delay(15*ms)
-        
-        self.MOTs.set_current(0.0)
-        delay(20*ms)
-        self.MOTs.set_current_dir(0)
-        delay(5*ms)  
-        
-        #process and output
-        self.MOTs.AOMs_on_all() # just keeps AOMs warm
-        self.Camera.process_image(save=True, name='', bg_sub=True)
-        delay(400*ms)
-        
-        return self.Camera.get_push_stats()
-        
-
+        self.core.wait_until_mu(now_mu())
     
     @kernel
     def readout(self, scheme):
@@ -358,7 +404,7 @@ class ClockExcitation_Cav_exp(Scan1D, TimeFreqScan, EnvExperiment):
             self.MOTs.aom_3P2.sw.off()
 
         elif scheme == "1":
-            self.State_Control.push_pulse(self.MOTs.Push_pulse_time)
+            #self.State_Control.push_pulse(self.MOTs.Push_pulse_time)
             delay(200*us)
             self.State_Control.push_pulse(self.MOTs.Push_pulse_time)
             delay(5*us)
@@ -369,7 +415,7 @@ class ClockExcitation_Cav_exp(Scan1D, TimeFreqScan, EnvExperiment):
             self.MOTs.aom_3P0.sw.off()
             self.MOTs.aom_3P2.sw.off()
             
-        elif scheme == "2": #readout with 3P2 port
+        elif scheme == "2":
             delay(200*us)
             self.State_Control.push_pulse(self.MOTs.Push_pulse_time)
 
@@ -386,29 +432,25 @@ class ClockExcitation_Cav_exp(Scan1D, TimeFreqScan, EnvExperiment):
             delay(self.MOTs.Delay_duration)
             self.MOTs.aom_3P0.sw.off()
             self.MOTs.aom_3P2.sw.off()
-            
-        elif scheme == "3": #readout without repumpers
-            self.State_Control.set_AOM_freq_679(self.State_Control.freq_679, self.State_Control.scale_679)
-            delay(100*us)
-            self.State_Control.push_pulse(self.MOTs.Push_pulse_time)
-            with parallel:
-                    self.State_Control.pulse_688(self.pi_time_Raman)
-                    self.State_Control.pulse_679(self.pi_time_Raman)
-
-            delay(200*us)
-            
-            delay(self.MOTs.Delay_duration)
         else:
             raise Exception("Not a valid readout scheme...")
             
-            
-        
-                
     @kernel
-    def after_scan(self):
-        self.core.reset()
-        delay(50*ms)
-        for i in range(3):
-            self.MOTs.urukul_channels[i].sw.on()
-        self.MOTs.atom_source_on()    
-  
+    def set_phases(self, point):
+        self.State_Control.set_AOM_phase(0, self.State_Control.freq_688, 0.0, self.t0, 0)
+        self.State_Control.set_AOM_phase(0, self.State_Control.freq_688, 0.0, self.t0, 1)
+
+        #
+        self.State_Control.set_AOM_phase(1, self.State_Control.freq_Push, 0.0, self.t0, 0)
+        self.State_Control.set_AOM_phase(1, self.State_Control.freq_Push, 0.0, self.t0, 1)
+
+
+        self.State_Control.set_AOM_phase(2, self.State_Control.freq_679, 0.0, self.t0, 0)
+        self.State_Control.set_AOM_phase(2, self.State_Control.freq_679, 0.0, self.t0, 1)
+
+
+        self.State_Control.set_AOM_phase(3, self.State_Control.freq_689, 0.0, self.t0, 0)
+        self.State_Control.set_AOM_phase(3, self.State_Control.freq_689, point, self.t0, 1)
+        
+        self.State_Control.switch_profile(0)
+        

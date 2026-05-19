@@ -37,7 +37,7 @@ class _Camera(EnvExperiment):
         self.setattr_argument("Hardware_Gain",NumberValue(150,min=0,max=350,scale=1
                       ),"Detection")
         
-        self.setattr_argument("Median_Filter",BooleanValue(False),"Detection")
+        self.setattr_argument("Median_Filter",BooleanValue(True),"Detection")
         self.setattr_argument("Gaussian_Filter",BooleanValue(False),"Detection")
                 
         self.xsize = 314
@@ -347,12 +347,8 @@ class _Camera(EnvExperiment):
     
     def get_push_stats(self) -> TInt32:
         return self.get_dataset('detection.images.ratio')
-    def get_push_stats_temp(self) -> TInt32:
-        return int(self.get_dataset('detection.images.counts'))
-    
-    def get_count_stats(self,i) -> TInt32:
-        self.mutate_dataset("detection.counts", i, self.get_dataset('detection.images.counts'))
-        return self.get_dataset('detection.images.counts')
+    def get_count_stats(self) -> TInt32:
+        return int(self.get_dataset('detection.images.total_counts'))
     
     def get_totalcount_stats(self) -> TInt32:
         return self.get_dataset('detection.images.total_counts')

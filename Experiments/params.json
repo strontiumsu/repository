@@ -13,8 +13,7 @@
  
  "scale_Probe" : 0.8,
  "atten_Probe" : 14,
- "freq_Probe" : 179.85*1e6, # red mot single frequency
- 
+ "freq_Probe" : 179.85*1e6,
  "scale_CavSideband" : 0.8,
  "atten_CavSideband" : 12,
  "freq_CavSideband" : 3*1e6,

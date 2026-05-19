@@ -48,9 +48,11 @@ class DipoleTrapTemperature_exp(Scan1D, TimeScan, EnvExperiment):
             )
 
 
-        self.setattr_argument("load_time", NumberValue(15*1e-3,min=1.0*1e-3,max=5000.00*1e-3,scale=1e-3,
+        self.setattr_argument("load_time", NumberValue(60*1e-3,min=1.0*1e-3,max=5000.00*1e-3,scale=1e-3,
                      unit="ms"),"parameters")
         self.setattr_argument("plot_direction", EnumerationValue(['X','Y']),"parameters")
+        self.setattr_argument("B_field", NumberValue(0.36,min=0.0,max=2,scale=1,
+                      unit="V", ndecimals=3),"parameters")
 
     def prepare(self):
         #prepare/initialize mot hardware and camera
@@ -99,37 +101,47 @@ class DipoleTrapTemperature_exp(Scan1D, TimeScan, EnvExperiment):
         self.core.reset()
         self.Camera.arm()
         delay(200*ms)
-
+        self.ttl5.off()  # NEW TAKE OUT  
         self.MOTs.AOMs_off_all()
         delay(10*ms)
 
         self.MOTs.init_rmot_dds(self.MOTs.rmot_freq_i, self.MOTs.rmot_freq_f, self.MOTs.rmot_freq_depth_i, self.MOTs.rmot_freq_depth_f, self.MOTs.freq_3D_red)
         delay(10 * ms)
-        self.MOTs.close_688() # close 688 shutter to prevent leakage from optical pumping
-        self.MOTs.rMOT_pulse_new(sf=False)
         
+        
+        # self.Bragg.aom_dipole.set_att(15.0)
+        # self.Bragg.aom_lattice.set_att(30.0)
+        
+        # # generate red mot
+        # self.MOTs.rMOT_pulse_new(dipole_on=False)
+        
+        # self.Bragg.aom_dipole.set_att(self.Bragg.atten_Dipole)     
+        # self.Bragg.aom_lattice.set_att(3.0)
+        
+        self.MOTs.rMOT_pulse_new()
+        
+        # load into dipole trap and perform molasses (if selected)
+        # Total time for this sequence needs to be >~ 40 ms for cavity shaking to stop.
+        with parallel:
+            delay(self.load_time/3) 
+            self.MOTs.set_current_dir(1) # let MOT field go to zero and switch H-bridge, 15ms     
         if self.MOTs.molasses:
-            with parallel:
-                delay(self.load_time)
-                self.MOTs.set_current_dir(1) 
-                self.MOTs.molasses_pulse(freq=self.MOTs.molasses_frequency, amp=0.1, t = self.load_time)
+            self.MOTs.molasses_pulse(freq=self.MOTs.molasses_frequency, amp=0.1, t=self.load_time/3)
         else:
-            delay(self.load_time)
+            delay(self.load_time/3)
 
-        self.MOTs.Blackman_ramp(0.0, 0.362, 20*ms) # set bias field so 3P1 m=+1 is ~40MHz separated.    
-        delay(8*ms)
-        ##################
-
-
-        delay(t_delay) # wait and hold data
-        self.Bragg.aom_dipole.set_att(30.0)
-        self.Bragg.aom_lattice.sw.off()
-
-
-        delay(5*ms)  # drop time
-        self.MOTs.take_MOT_image(self.Camera) # image after variable drop time
         
-        self.Bragg.aom_dipole.set_att(self.Bragg.atten_Dipole)
+        self.MOTs.Blackman_ramp(0.0, self.B_field ,self.load_time/3) # set bias field so 3P1 m=+1 is ~40MHz separated.
+ 
+        
+        self.Bragg.aom_dipole.set_att(30.0) # turn off dipole
+        self.Bragg.aom_lattice.sw.off() #turn off lattice
+ 
+        
+        delay(t_delay)  # drop time
+        self.MOTs.take_MOT_image(self.Camera) # image after variable drop time
+
+        self.Bragg.aom_dipole.set_att(self.Bragg.atten_Dipole)        
         self.Bragg.aom_lattice.sw.on()
         
 

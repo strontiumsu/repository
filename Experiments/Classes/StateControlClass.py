@@ -28,7 +28,7 @@ class _state_control(EnvExperiment):
         # default values for all params for all AOMs
         self.scales = [0.8, 0.8, 0.8, 0.8]
 
-        self.attens = [8.0, 6.0, 10.0, 8.0]
+        self.attens = [8.0, 6.0, 7.0, 8.0]
 
         self.freqs = [80.0, 102.5, 200.0, 220.0]
 
@@ -47,7 +47,7 @@ class _state_control(EnvExperiment):
             AOM = self.AOMs[i]
             self.setattr_argument(f"scale_{AOM}", NumberValue(self.scales[i], min=0.0, max=0.9), f"{AOM}_AOMs")
             self.setattr_argument(f"atten_{AOM}", NumberValue(self.attens[i], min=1.0, max=30), f"{AOM}_AOMs")
-            self.setattr_argument(f"freq_{AOM}", NumberValue(self.freqs[i]*1e6, min=0.1000*1e6, max=350.0000*1e6, scale=1e6, unit='MHz'),  f"{AOM}_AOMs")
+            self.setattr_argument(f"freq_{AOM}", NumberValue(self.freqs[i]*1e6, min=0.1000*1e6, max=350.0000*1e6, scale=1e6, unit='MHz', ndecimals=5),  f"{AOM}_AOMs")
 
 
     def prepare_aoms(self):
@@ -166,8 +166,8 @@ class _state_control(EnvExperiment):
         
     @kernel 
     def pulse_679(self,t):
-        rewind=450*ns
-        added=100*ns
+        rewind=490*ns
+        added=140*ns
         
         delay(-rewind)
         self.pulse(self.aom_679, t, added)

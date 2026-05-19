@@ -41,8 +41,10 @@ class rMOT_molasses_calib_exp(Scan1D, TimeFreqScan, EnvExperiment):
              frequencies={'start':-3*MHz,'stop':3*MHz,'npoints':10,'unit':"MHz",'scale':MHz,'global_step':0.1*MHz,'ndecimals':4},
             frequency_center={'default':179*MHz}, pulse_time= {'default':40*ms},nbins = {'default':1000},nrepeats = {'default':1},npasses = {'default':1},fit_options = {'default': "No Fits"} )
         
-        self.setattr_argument("dipole_load_time", NumberValue(20.0*1e-3,min=0.0*1e-3,max=9000.00*1e-3,scale=1e-3,
-                      unit="ms"),"Params")       
+        self.setattr_argument("dipole_load_time", NumberValue(60.0*1e-3,min=0.0*1e-3,max=9000.00*1e-3,scale=1e-3,
+                      unit="ms"),"Params")   
+        self.setattr_argument("B_field", NumberValue(0.36,min=0.0,max=2,scale=1,
+                      unit="V", ndecimals=3),"Params")
         
         
     def prepare(self):
@@ -106,23 +108,53 @@ class rMOT_molasses_calib_exp(Scan1D, TimeFreqScan, EnvExperiment):
         self.MOTs.AOMs_off_all()
         delay(5*ms)
         
-        # generate red mot
-        self.MOTs.close_688() # close 688 shutter to prevent leakage from optical pumping
+         # generate red mot
         self.MOTs.rMOT_pulse_new()
-        #self.MOTs.open_688() # open shutter after 689 rMOT light turns off to be prepare for Raman pulse
         
-              
+        # load into dipole trap and perform molasses (if selected)
+        # Total time for this sequence needs to be >~ 40 ms for cavity shaking to stop.
+        with parallel:
+            delay(self.dipole_load_time/3) 
+            self.MOTs.set_current_dir(1) # let MOT field go to zero and switch H-bridge, 15ms        
+        self.MOTs.Blackman_ramp(0.0, self.B_field ,self.dipole_load_time/3) # set bias field so 3P1 m=+1 is ~40MHz separated.
         if self.MOTs.molasses:
-            with parallel:
-                self.MOTs.set_current_dir(1) 
-                self.MOTs.molasses_pulse(freq=frequency, amp=0.1, t=time)
+            self.MOTs.molasses_pulse(freq=frequency, amp=0.1, t=time)
         else:
-            delay(self.dipole_load_time)
-                  
+            delay(time)
+            
+            
+            
+        # load into dipole trap and perform molasses (if selected)
+        # Total time for this sequence needs to be >~ 40 ms for cavity shaking to stop.
+        # with parallel:
+        #     delay(self.dipole_load_time/3) 
+        #     self.MOTs.set_current_dir(1) # let MOT field go to zero and switch H-bridge, 15ms 
+        # if self.MOTs.molasses:
+        #     self.MOTs.molasses_pulse(freq=frequency, amp=0.1, t=time)
+        # else:
+        #     delay(time)
+        # self.MOTs.Blackman_ramp(0.0, self.B_field ,self.dipole_load_time/3) # set bias field so 3P1 m=+1 is ~40MHz separated.
         
+        # release from lattice for 1ms
+        self.Bragg.aom_dipole.set_att(30.0) # turn off dipole
+        self.Bragg.aom_lattice.sw.off() #turn off lattice
+        delay(2*ms)
+        
+        # focus for variable time
+        self.Bragg.aom_dipole.set_att(self.Bragg.atten_Dipole) # turn off dipole
+        delay(time)
+        
+
+        self.Bragg.aom_dipole.set_att(30.0) # turn off dipole
+        self.Bragg.aom_lattice.sw.off() #turn off lattice
+        delay(4*ms)
+
         # image and reset for next shot
         self.MOTs.take_MOT_image(self.Camera)  
         delay(15*ms)
+        
+        self.Bragg.aom_dipole.set_att(self.Bragg.atten_Dipole)
+        self.Bragg.aom_lattice.sw.on()
         
         self.MOTs.set_current(0.0)
         delay(20*ms)
