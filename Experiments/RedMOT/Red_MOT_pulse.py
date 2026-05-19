@@ -39,7 +39,7 @@ class Red_MOT_pulse_exp(EnvExperiment):
         self.MOTs.prepare_aoms()
         self.MOTs.prepare_coils()
         # Initialize camera
-        self.Camera.camera_init()
+        self.Camera.camera_init(N=int(self.pulses)+10)
         
      
         
@@ -75,8 +75,8 @@ class Red_MOT_pulse_exp(EnvExperiment):
         self.ttl5.off()
         for i in range(int(self.pulses)):
             delay(10*ms)
-            self.Camera.arm()
-            delay(500*ms) 
+            # self.Camera.arm()
+            # delay(500*ms) 
         
             
             self.MOTs.init_rmot_dds(self.MOTs.rmot_freq_i, self.MOTs.rmot_freq_f, self.MOTs.rmot_freq_depth_i,self.MOTs.rmot_freq_depth_f, self.MOTs.freq_3D_red)
@@ -109,6 +109,7 @@ class Red_MOT_pulse_exp(EnvExperiment):
         for i in range(3):
             self.MOTs.urukul_channels[i].sw.on()
         self.MOTs.atom_source_on()
+        self.Camera.disarm()
         
          
     
