@@ -56,7 +56,7 @@ class DipoleTrapLifetime_exp(Scan1D, TimeScan, EnvExperiment):
         #prepare/initialize mot hardware and camera
         self.MOTs.prepare_aoms()
         self.MOTs.prepare_coils()
-        self.Camera.camera_init()
+        self.Camera.camera_init(N=len(list(self.get_scan_points()))*self.nrepeats + 10)
         self.Bragg.prepare_aoms()
         # register model with scan framework
         self.enable_histograms = True
@@ -86,11 +86,7 @@ class DipoleTrapLifetime_exp(Scan1D, TimeScan, EnvExperiment):
         self.MOTs.AOMs_off_all()
         self.MOTs.atom_source_off()
         
-        
-    
 
-    def before_measure(self, point, measurement):
-        self.Camera.arm()
 
 
     @kernel
@@ -147,4 +143,4 @@ class DipoleTrapLifetime_exp(Scan1D, TimeScan, EnvExperiment):
         self.Camera.process_image(bg_sub=True)
         delay(400*ms)
         
-        return self.Camera.get_count_stats()
+        return 0

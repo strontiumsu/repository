@@ -30,7 +30,7 @@ class Red_MOT_pulse_exp(EnvExperiment):
         self.setattr_argument("wait_time", NumberValue(1000.0*1e-3,min=0.0*1e-3,max=9000.00*1e-3,scale=1e-3,
                       unit="ms"),"parameters")
         self.setattr_argument("broadband",BooleanValue(False),"parameters")
-        self.scan_list = np.linspace(20*ms, 100*ms, 25)
+
 
 
 
@@ -39,7 +39,7 @@ class Red_MOT_pulse_exp(EnvExperiment):
         self.MOTs.prepare_aoms()
         self.MOTs.prepare_coils()
         # Initialize camera
-        self.Camera.camera_init(N=int(self.pulses)+10)
+        self.Camera.camera_init(N=int(self.pulses) + 10)
         
      
         
@@ -70,6 +70,7 @@ class Red_MOT_pulse_exp(EnvExperiment):
         
     @kernel
     def run_exp(self):
+ 
         self.core.reset()
         delay(10*ms)
         self.ttl5.off()
@@ -109,7 +110,6 @@ class Red_MOT_pulse_exp(EnvExperiment):
         for i in range(3):
             self.MOTs.urukul_channels[i].sw.on()
         self.MOTs.atom_source_on()
-        self.Camera.disarm()
         
          
     

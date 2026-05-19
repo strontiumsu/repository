@@ -1,0 +1,35 @@
+{
+  "_doc": "ROI definitions per experiment. Coordinates are (x, y, w, h) in pixels of the cropped image (after cam_range).",
+  "_coordinate_system": "x = horizontal (column index), y = vertical (row index), origin top-left. Inclusive of (x,y), spans w pixels right and h pixels down.",
+
+  "horizontal_push_689UNTESTED": {
+    "description": "689 nm horizontal push spectroscopy. Port 2 is the pushed cloud, port 1 is the unpushed cloud.",
+    "ports": {
+      "port1_unpushed": {"x": 160, "y": 40,  "w": 70, "h": 200, "color": 200},
+      "port2_pushed":   {"x": 230, "y": 40,  "w": 60, "h": 200, "color": 200}
+    }
+  },
+
+  "horizontal_double_push_689UNTESTED": {
+    "description": "689 nm double-push variant.",
+    "ports": {
+      "port1": {"x": 90,  "y": 40,  "w": 70, "h": 200, "color": 200},
+      "port2": {"x": 160, "y": 40,  "w": 70, "h": 200, "color": 200}
+    }
+  },
+
+  "dipole_trap_freq": {
+    "description": "Axial trap frequency scan. Single MOT cloud, total counts in one ROI.",
+    "ports": {
+      "narrow": {"x": 255, "y": 65, "w": 7, "h": 170, "color": 200},
+      "wide": {"x": 242, "y": 59, "w": 36, "h": 170, "color": 200}
+    }
+  }, 
+  "dipole_trap_lifetime": {
+    "description": "Dipole trap lifetime scan. Single MOT cloud, total counts in one ROI.",
+    "ports": {
+      "counts": {"x": 238, "y": 62, "w": 39, "h": 74, "color": 200}
+    }
+  }
+}
+

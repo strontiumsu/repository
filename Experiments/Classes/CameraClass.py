@@ -13,6 +13,7 @@ from scipy.ndimage import gaussian_filter
 import matplotlib.pyplot as plt
 from PIL import Image
 import time
+import json
    
 
 class _Camera(EnvExperiment):
@@ -27,6 +28,8 @@ class _Camera(EnvExperiment):
         hardware_gain: gain setting for images
 
         """
+
+        
         self.setattr_device("core") 
         self.setattr_device("ttl4")         # Camera hardware trigger
         self.cam=self.get_device("camera") # Thorlabs camera
@@ -38,13 +41,32 @@ class _Camera(EnvExperiment):
         
         self.setattr_argument("Median_Filter",BooleanValue(True),"Detection")
         self.setattr_argument("Gaussian_Filter",BooleanValue(False),"Detection")
+
+        self.ROI_list = Path(__file__).parent / "rois.json"
+        with open(self.ROI_list) as f:
+            schemes = [k for k in json.load(f) if not k.startswith("_")]
+        self.setattr_argument("ROI_Scheme",
+            EnumerationValue(schemes, default=schemes[0]),
+            "Detection")
+
                 
         self.xsize = 314
         self.ysize = 264
         self.current_image = np.zeros((self.xsize, self.ysize)) 
         self.background_image = np.zeros((self.xsize, self.ysize)) 
         
-        
+    @rpc
+    def _load_roi(self):
+        """loads the ROIs for the current experiment from the rois.json file. Should be called in prepare() of each experiment."""
+        with open(self.ROI_list, 'r') as f:
+            all_rois = json.load(f)
+
+        if self.ROI.get() not in all_rois:
+            raise ValueError(f"ROI {self.ROI.get()} not found in {self.ROI_list}")
+        self.current_roi = all_rois[self.ROI.get()]
+        self.ports = self.current_roi["ports"]
+
+
     def prep_datasets(self,x):
         self.set_dataset("detection.counts",x, broadcast=True)    
 
@@ -78,50 +100,21 @@ class _Camera(EnvExperiment):
         
         self.ind = 0
 
-        #mot ranges horizontal push
-        self.y1 = 200
-        self.y2 = 600
+        self._load_roi()
 
-        self.x1 = 5
-        self.x2 = 50
-        self.x3 = 500
-        
-        if scheme == 0: # # 689 horizontal push
-            self.ycen = 140
-            self.xcen = 230
-            self.xydev =100
-            self.xdev1 = 70
-            self.xdev2 = 60
-            self.ydev = 100
-        
-        if scheme == 1: # 689 horizontal double push
-            self.ycen = 140
-            self.xcen = 160
-            self.xydev =50
-            self.xdev1 = 70
-            self.xdev2 = 70
-            self.ydev = 100
-        
-        # 689 vertical push
-        # self.ycen = 110
-        # self.xcen = 185
-        # self.xdev = 25
-        # self.ydev = 40
-        # self.xdev1 = 20
-        # self.xdev2 = 20
-        # self.ydev1 = 25
-        # self.ydev2 = 80
-        
-        # interferometry
-        self.xint = 150
-        self.intdev = 15
-        self.y0hk = 176
-        self.y2hk = self.y0hk-2*self.intdev
-        self.y2hkm = self.y0hk+2*self.intdev
-        self.y4hk = 100
+        self.set_dataset("detection.roi", self.ROI, broadcast=True, archive=True)
 
         self.arm(N=N)
     
+    def _draw_box(self, img, x, y, w, h, color):
+        """Draw a hollow rectangle on img at (x, y) of size (w, h)."""
+        x_end = min(x + w, img.shape[0] - 1)
+        y_end = min(y + h, img.shape[1] - 1)
+        img[x:x_end+1, y]     = color  # left edge
+        img[x:x_end+1, y_end] = color  # right edge
+        img[x,     y:y_end+1] = color  # top edge
+        img[x_end, y:y_end+1] = color  # bottom edge
+
     @rpc
     def arm(self, N=2):   
         """arms the camera to take N images. If already armed, does nothing."""
@@ -183,40 +176,19 @@ class _Camera(EnvExperiment):
             self.current_image = gaussian_filter(self.current_image, 3)
         if save:
             self.set_dataset(f"detection.images.{name}{self.ind}", self.current_image)
-            
-        
-        # Ranges for 689 spectrsoscopy push
-        self.set_dataset(f"detection.images.ratio", int(10**6*((np.sum(self.current_image[self.xcen:self.xcen+self.xdev2,self.ycen-self.ydev:self.ycen+self.ydev]))/(np.sum(self.current_image[self.xcen-self.xdev1:self.xcen+self.xdev2, self.ycen-self.ydev:self.ycen+self.ydev])))), broadcast=True)
-        self.set_dataset("detection.images.total_counts",int(np.sum(self.current_image)), broadcast=True)
-        
-        
-        display_image = np.copy(self.current_image)
 
-        #display for horizontal push
-        display_image[self.xcen-self.xdev1:self.xcen+self.xdev2+1, self.ycen] = 200
-        display_image[self.xcen-self.xdev1,   self.ycen-self.ydev:self.ycen+1] = 200
-        display_image[self.xcen,   self.ycen-self.ydev:self.ycen+1] = 200
-        display_image[self.xcen+self.xdev2,   self.ycen-self.ydev:self.ycen+1] = 200
-        display_image[self.xcen-self.xdev1:self.xcen+self.xdev2+1,  self.ycen-self.ydev] = 200
-        display_image[self.xcen:self.xcen+self.xdev2+1,   self.ycen] = 200
-        display_image[self.xcen,   self.ycen-self.ydev:self.ycen+1] = 200
-        display_image[self.xcen+self.xdev2,   self.ycen-self.ydev:self.ycen+1] = 200
-        
-        #Display for vertical push
-        # display_image[self.xcen-self.xdev:self.xcen+self.xdev+1, self.ycen-self.ydev2] = 200
-        # display_image[self.xcen-self.xdev:self.xcen+self.xdev+1, self.ycen] = 200
-        # display_image[self.xcen-self.xdev:self.xcen+self.xdev+1, self.ycen+self.ydev1] = 200
-        
-        # display_image[self.xcen-self.xdev, self.ycen-self.ydev2:self.ycen+self.ydev1] = 200
-        # display_image[self.xcen+self.xdev, self.ycen-self.ydev2:self.ycen+self.ydev1] = 200
-
-    
-
+        for port_name, port in self.ports.items():
+            self._draw_box(display_image,
+                           port["x"], port["y"], port["w"], port["h"],
+                           port.get("color", 200))
 
         display_image = np.where(display_image > 0, display_image, 0)
-        self.set_dataset("detection.images.current_image", display_image, broadcast=True)
+        self.set_dataset("detection.images.current_image",
+                         display_image, broadcast=True)
+
         self.ind += 1
-        
+            
+    
 
 
     @rpc    
