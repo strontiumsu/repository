@@ -249,6 +249,26 @@ class LoadingModel(TimeModel):
     main_fit = "tau"
     def before_validate(self, fit):
         fit.fitresults["tau"] = -1/fit.fitresults['b']
+
+class LifetimeModel(TimeModel):
+
+    # global parameters
+    namespace="LifetimeExp"
+    y_label='Counts'
+    x_label='hold time'
+    x_units = 's'
+    plot_title = 'Lifetime Scan'
+    enable_histograms = False
+    fit_function = Exp
+    man_bounds = {'A': [0, 100_000_000],
+                   'b': [-20, 0],
+                   'y0':[0, 1000000]
+                   }
+    guess = {'b': -3}
+    
+    main_fit = "tau"
+    def before_validate(self, fit):
+        fit.fitresults["tau"] = -1/fit.fitresults['b']
     
 class TemperatureModel(TimeModel):
     

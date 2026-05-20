@@ -5,7 +5,7 @@ Created on Thu Feb  2 12:41:16 2023
 @author: E. Porter
 """
 
-from artiq.experiment import delay, NumberValue, ms, kernel, EnvExperiment, TInt32, BooleanValue, rpc
+from artiq.experiment import delay, NumberValue, ms, kernel, EnvExperiment, TInt32, BooleanValue, rpc, EnumerationValue, TArray, TTuple
 import numpy as np
 from scipy.optimize import curve_fit
 from scipy.signal import medfilt
@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 from PIL import Image
 import time
 import json
-   
+from pathlib import Path
 
 class _Camera(EnvExperiment):
     
@@ -61,9 +61,7 @@ class _Camera(EnvExperiment):
         with open(self.ROI_list, 'r') as f:
             all_rois = json.load(f)
 
-        if self.ROI.get() not in all_rois:
-            raise ValueError(f"ROI {self.ROI.get()} not found in {self.ROI_list}")
-        self.current_roi = all_rois[self.ROI.get()]
+        self.current_roi = all_rois[self.ROI_Scheme]
         self.ports = self.current_roi["ports"]
 
 
@@ -102,7 +100,7 @@ class _Camera(EnvExperiment):
 
         self._load_roi()
 
-        self.set_dataset("detection.roi", self.ROI, broadcast=True, archive=True)
+        self.set_dataset("detection.roi", self.ROI_Scheme, broadcast=True, archive=True)
 
         self.arm(N=N)
     
@@ -160,7 +158,7 @@ class _Camera(EnvExperiment):
         delay(time)
 
     @rpc     
-    def process_image(self, save=True, name='', bg_sub=True):
+    def process_image(self, save=True, name='', bg_sub=True, return_ports=[]) -> TArray(TInt32):
         # pulls the current image, saves/bg subs as needed. Saves to current image dataset
         self.acquire_frame()
        
@@ -177,9 +175,16 @@ class _Camera(EnvExperiment):
         if save:
             self.set_dataset(f"detection.images.{name}{self.ind}", self.current_image)
 
+        display_image = np.copy(self.current_image)
+        self.ports_counts = {}
         for port_name, port in self.ports.items():
+            x, y, w, h = port["x"], port["y"], port["w"], port["h"]
+            c = int(np.sum(self.current_image[x:x+w, y:y+h]))
+            self.ports_counts[port_name] = c
+
+            self.set_dataset(f"detection.counts.{port_name}{self.ind}", c )
             self._draw_box(display_image,
-                           port["x"], port["y"], port["w"], port["h"],
+                           x, y, w, h,
                            port.get("color", 200))
 
         display_image = np.where(display_image > 0, display_image, 0)
@@ -187,6 +192,12 @@ class _Camera(EnvExperiment):
                          display_image, broadcast=True)
 
         self.ind += 1
+
+        if return_ports == []:
+            return np.array([])
+        else:
+            return np.array([self.ports_counts[port] for port in return_ports])
+
             
     
 
@@ -202,11 +213,7 @@ class _Camera(EnvExperiment):
 
     @rpc
     def prep_temp_datasets(self, n):
-        self.set_dataset(
-            "gaussianparams",
-            [[0.0]*6]*n,
-            broadcast=True
-        );
+        self.set_dataset( "gaussianparams", [[0.0]*6]*n, broadcast=True)
         
         
     @rpc    

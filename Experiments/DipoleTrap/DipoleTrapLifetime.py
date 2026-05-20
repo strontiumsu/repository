@@ -13,7 +13,7 @@ import numpy as np
 from CoolingClass import _Cooling
 from CameraClass import _Camera
 from BraggClass import _Bragg
-from repository.models.scan_models import LoadingModel
+from repository.models.scan_models import LifetimeModel
 
 
 class DipoleTrapLifetime_exp(Scan1D, TimeScan, EnvExperiment):
@@ -56,11 +56,12 @@ class DipoleTrapLifetime_exp(Scan1D, TimeScan, EnvExperiment):
         #prepare/initialize mot hardware and camera
         self.MOTs.prepare_aoms()
         self.MOTs.prepare_coils()
-        self.Camera.camera_init(N=len(list(self.get_scan_points()))*self.nrepeats + 10)
+
+        self.Camera.camera_init(N=len(list(self.get_scan_points()))*self.nrepeats*self.npasses + 5)
         self.Bragg.prepare_aoms()
         # register model with scan framework
         self.enable_histograms = True
-        self.model = LoadingModel(self)
+        self.model = LifetimeModel(self)
         self.register_model(self.model, measurement=True, fit=True)
 
 
@@ -78,11 +79,9 @@ class DipoleTrapLifetime_exp(Scan1D, TimeScan, EnvExperiment):
         delay(10*ms)
 
         self.MOTs.take_background_image_exp(self.Camera)
-        delay(100*ms)
-        self.MOTs.atom_source_on()
-        delay(100*ms)
-        self.MOTs.AOMs_on_all()
-        delay(200*ms)
+
+        
+
         self.MOTs.AOMs_off_all()
         self.MOTs.atom_source_off()
         
@@ -91,41 +90,34 @@ class DipoleTrapLifetime_exp(Scan1D, TimeScan, EnvExperiment):
 
     @kernel
     def measure(self, point):
-        t_delay = point
+        
         self.core.wait_until_mu(now_mu())
-        self.core.reset()
-        
-        self.MOTs.init_rmot_dds(self.MOTs.rmot_freq_i, self.MOTs.rmot_freq_f, self.MOTs.rmot_freq_depth_i, self.MOTs.rmot_freq_depth_f, self.MOTs.freq_3D_red)
-        delay(10 * ms)
-        
+        delay(5*ms)
+        self.core.break_realtime()
         self.MOTs.AOMs_off_all()
         delay(10*ms)
+
+
+        self.MOTs.init_rmot_dds(self.MOTs.rmot_freq_i, 
+                                self.MOTs.rmot_freq_f, 
+                                self.MOTs.rmot_freq_depth_i, 
+                                self.MOTs.rmot_freq_depth_f, 
+                                self.MOTs.freq_3D_red)
+        delay(10 * ms)
         
-         # generate red mot
         self.MOTs.rMOT_pulse_new()
         
-        # self.Bragg.aom_dipole.set_att(15.0)
-        # self.Bragg.aom_lattice.set_att(30.0)
-        
-        # # generate red mot
-        # self.MOTs.rMOT_pulse_new(dipole_on=False)
-        
-        # self.Bragg.aom_dipole.set_att(self.Bragg.atten_Dipole)     
-        # self.Bragg.aom_lattice.set_att(3.0)
-        
-        # load into dipole trap and perform molasses (if selected)
-        # Total time for this sequence needs to be >~ 40 ms for cavity shaking to stop.
-        with parallel:
-            delay(self.load_time/3) 
-            self.MOTs.set_current_dir(1) # let MOT field go to zero and switch H-bridge, 15ms    
-        if self.MOTs.molasses:
-            self.MOTs.molasses_pulse(freq=self.MOTs.molasses_frequency, amp=0.1, t=self.load_time/3)
-        else:
-            delay(self.load_time/3)
-        self.MOTs.Blackman_ramp(0.0, self.B_field, self.load_time/3) # set bias field so 3P1 m=+1 is ~40MHz separated.
+        # with parallel:
+        #     delay(self.load_time/3) 
+        #     self.MOTs.set_current_dir(1) # let MOT field go to zero and switch H-bridge, 15ms    
+        # if self.MOTs.molasses:
+        #     self.MOTs.molasses_pulse(freq=self.MOTs.molasses_frequency, amp=0.1, t=self.load_time/3)
+        # else:
+        #     delay(self.load_time/3)
+        # self.MOTs.Blackman_ramp(0.0, self.B_field, self.load_time/3) # set bias field so 3P1 m=+1 is ~40MHz separated.
         
         
-        delay(t_delay)  # drop time    
+        delay(point + self.load_time)
 
 
         self.MOTs.take_MOT_image(self.Camera) # image after variable drop time
@@ -133,14 +125,16 @@ class DipoleTrapLifetime_exp(Scan1D, TimeScan, EnvExperiment):
         delay(10*ms)
         self.MOTs.AOMs_on_all()
         delay(5*ms)
+
         self.MOTs.Blackman_ramp(self.B_field, 0.0, 30*ms)
         self.MOTs.set_current_dir(0)
+
         delay(5*ms)
 
-        #self.MOTs.close_461()#new
 
-        delay(50*ms)
-        self.Camera.process_image(bg_sub=True)
-        delay(400*ms)
-        
-        return 0
+        ports=self.Camera.process_image(bg_sub=True, return_ports=["counts"])
+        total_counts = ports[0]
+        self.core.break_realtime()
+        delay(10*ms)
+
+        return int(total_counts)

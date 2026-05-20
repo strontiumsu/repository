@@ -19,7 +19,7 @@
   },
 
   "dipole_trap_freq": {
-    "description": "Axial trap frequency scan. Single MOT cloud, total counts in one ROI.",
+    "description": "Axial trap frequency scan. Single MOT cloud, narrow strip countrs in one ROI, total counts in another.",
     "ports": {
       "narrow": {"x": 255, "y": 65, "w": 7, "h": 170, "color": 200},
       "wide": {"x": 242, "y": 59, "w": 36, "h": 170, "color": 200}
