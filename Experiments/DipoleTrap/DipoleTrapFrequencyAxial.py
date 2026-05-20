@@ -199,7 +199,7 @@ class DipoleTrapFrequencyAxial_exp(Scan1D, FreqScan, EnvExperiment):
     @kernel
     def load_mod(self, dds, ai, af, freq):
         # one host round-trip, table arrives prepacked
-        step, ram_data = self._build_ram_table(ai, af, freq)
+        step, max_ind, ram_data = self._build_ram_table(ai, af, freq)
         self.core.break_realtime()  # RPC ate ~ms of wall clock
         delay(1*ms)
         
@@ -212,7 +212,7 @@ class DipoleTrapFrequencyAxial_exp(Scan1D, FreqScan, EnvExperiment):
         dds.set_profile_ram(start=1022, end=1023, step=step,
                             profile=7, mode=ad9910.RAM_MODE_CONT_RAMPUP)
         delay(100*us)
-        dds.set_profile_ram(start=0, end=1021, step=step,
+        dds.set_profile_ram(start=0, end=max_ind-1, step=step,
                             profile=0, mode=ad9910.RAM_MODE_CONT_RAMPUP)
         delay(100*us)
 
@@ -221,7 +221,7 @@ class DipoleTrapFrequencyAxial_exp(Scan1D, FreqScan, EnvExperiment):
         dds.cpld.set_profile(0)
         dds.cpld.io_update.pulse_mu(8)
         delay(100*us)
-        dds.write_ram(ram_data[:1022])
+        dds.write_ram(ram_data[:max_ind])
         delay(100*us)
     
         # write single frequency
@@ -241,7 +241,7 @@ class DipoleTrapFrequencyAxial_exp(Scan1D, FreqScan, EnvExperiment):
 
 
     @rpc
-    def _build_ram_table(self, ai, af, freq) -> TTuple([TInt32, TArray(TInt32)]):
+    def _build_ram_table(self, ai, af, freq) -> TTuple([TInt32,TInt32, TArray(TInt32), ]):
         # perform on host
         k_ideal = round(N_CYCLES_IN_RAM/(N_SINE*freq*(4*ns)))
         k = min(5000, max(1, k_ideal))
@@ -253,7 +253,12 @@ class DipoleTrapFrequencyAxial_exp(Scan1D, FreqScan, EnvExperiment):
         table = np.concatenate([table, [self.Bragg.scale_Lattice]*2])
         ram = np.zeros(1024, dtype=np.int32)
         self.Bragg.aom_lattice.amplitude_to_ram(table, ram)
-        return (k, ram)
+
+        # return step size, unpacked ram, and index to stop at for perfect phase wrap
+        cycles = int(dphi*1022 / (2*np.pi))
+        max_ind = min(round(2*np.pi * cycles / dphi), 1022)
+
+        return (k, max_ind, ram)
 
 
 
