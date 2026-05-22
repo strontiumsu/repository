@@ -136,12 +136,12 @@ class _Camera(EnvExperiment):
         self.x3 = 500
         
         if scheme == 0: # # 689 horizontal push
-            self.ycen = 140
+            self.ycen = 120
             self.xcen = 230
             self.xydev =100
             self.xdev1 = 70
             self.xdev2 = 60
-            self.ydev = 100
+            self.ydev = 50
         
         if scheme == 1: # 689 horizontal double push
             self.ycen = 140
