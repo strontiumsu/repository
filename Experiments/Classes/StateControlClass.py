@@ -6,10 +6,10 @@ Created on Fri Jan 17 13:44:41 2025
 """
 
 
-from artiq.experiment import EnvExperiment, NumberValue, delay, ms, kernel, TInt32, parallel, ns
+from artiq.experiment import EnvExperiment, NumberValue, delay, ms, kernel, TInt32, parallel, ns # pyright: ignore[reportMissingImports]
 import numpy as np
 
-from artiq.coredevice.ad9910 import PHASE_MODE_TRACKING
+from artiq.coredevice.ad9910 import PHASE_MODE_TRACKING # pyright: ignore[reportMissingImports]
 
 class _state_control(EnvExperiment):
 

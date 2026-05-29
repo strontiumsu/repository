@@ -5,7 +5,9 @@ Created on Wed Aug 27 12:17:35 2025
 @author: sr
 """
 
-from artiq.experiment import *
+from artiq.experiment import Scannable, RangeScan, EnumerationValue, BooleanValue, NumberValue, at_mu, sequential, s # pyright: ignore[reportMissingImports]
+from artiq.experiment import kernel, EnvExperiment, kHz, delay, ms, parallel, us, MHz, now_mu, ns # pyright: ignore[reportMissingImports]
+from artiq.coredevice import ad9910 # pyright: ignore[reportMissingImports]
 from scan_framework import Scan1D, TimeScan
 import numpy as np
 
@@ -14,7 +16,7 @@ from CameraClass import _Camera
 from BraggClass import _Bragg
 from StateControlClass import _state_control
 
-from artiq.coredevice import ad9910
+
 
 
 

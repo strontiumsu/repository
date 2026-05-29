@@ -7,13 +7,13 @@ Created on Thu Mar 13 13:02:17 2025
 
 
 from scan_framework import Scan1D, TimeScan
-from artiq.experiment import *
+from artiq.experiment import EnvExperiment, BooleanValue, kernel, ms, delay, now_mu, s # pyright: ignore[reportMissingImports]
 import numpy as np
 
 
 from CoolingClass import _Cooling
-from CameraClass import _Camera
-from repository.models.scan_models import LoadingModel
+from CameraClass import _Camera 
+from repository.models.scan_models import LoadingModel # pyright: ignore[reportMissingImports]
 
 class BlueMOTLoading_exp(Scan1D, TimeScan, EnvExperiment):
 

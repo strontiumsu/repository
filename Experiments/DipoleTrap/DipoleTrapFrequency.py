@@ -6,16 +6,18 @@ Created on Thu Mar 13 17:26:44 2025
 """
 
 from scan_framework import Scan1D, TimeScan
-from artiq.experiment import *
+
+from artiq.experiment import Scannable, RangeScan, EnumerationValue, BooleanValue, NumberValue, at_mu, sequential, s # pyright: ignore[reportMissingImports]
+from artiq.experiment import kernel, EnvExperiment, kHz, delay, ms, parallel, us, MHz, now_mu, ns # pyright: ignore[reportMissingImports]
+
 import numpy as np
 
 
 from CoolingClass import _Cooling
 from CameraClass import _Camera
 from BraggClass import _Bragg
-from repository.models.scan_models import DipoleFreqModel
-from scipy.optimize import curve_fit
-from scipy import constants
+from repository.models.scan_models import DipoleFreqModel # pyright: ignore[reportMissingImports]
+
 
 class DipoleTrapFrequency_exp(Scan1D, TimeScan, EnvExperiment):
 

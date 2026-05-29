@@ -7,12 +7,12 @@ Created on Mon Nov  4 11:01:45 2024
 
 
 #imports
-from artiq.experiment import *
+from artiq.experiment import EnvExperiment, RangeScan, Scannable, kernel, ms, NumberValue, delay, now_mu, us # pyright: ignore[reportMissingImports]
 from scan_framework import Scan1D
 import numpy as np
 
 from BraggClass import _Bragg
-from repository.models.scan_models import RabiModel
+from repository.models.scan_models import RabiModel # pyright: ignore[reportMissingImports]
 
 
 class bare_cavity_dual_scan_exp(Scan1D, EnvExperiment):

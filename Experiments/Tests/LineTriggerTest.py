@@ -8,7 +8,7 @@ Created on Thu Feb 27 10:43:13 2025
 import numpy as np
 
 
-from artiq.experiment import *                
+from artiq.experiment import EnvExperiment, kernel, ms, delay, us, s # pyright: ignore[reportMissingImports]               
 
 class lineTriggerTest_Exp(EnvExperiment):
     def build(self): #This code runs on the host device

@@ -27,16 +27,19 @@ thing changing is the lattice's RAM address range.
 """
 
 from scan_framework import Scan1D, FreqScan
-from artiq.experiment import *
+
+from artiq.experiment import TInt32, TArray, TTuple, Scannable, RangeScan, EnumerationValue, BooleanValue, NumberValue, at_mu, sequential, s # pyright: ignore[reportMissingImports]
+from artiq.experiment import rpc, kernel, EnvExperiment, kHz, delay, ms, parallel, us, MHz, now_mu, ns # pyright: ignore[reportMissingImports]
+from artiq.coredevice import ad9910 # pyright: ignore[reportMissingImports]
 import numpy as np
-from artiq.coredevice import ad9910
+
 
 from CoolingClass import _Cooling
 from CameraClass import _Camera
 from BraggClass import _Bragg
 from scipy import constants
 
-from repository.models.scan_models import DipoleFreqModel
+from repository.models.scan_models import DipoleFreqModel # pyright: ignore[reportMissingImports]
 
 # module level constants
 N_CYCLES_IN_RAM = 8
@@ -242,7 +245,7 @@ class DipoleTrapFrequencyAxial_exp(Scan1D, FreqScan, EnvExperiment):
 
 
     @rpc
-    def _build_ram_table(self, ai, af, freq) -> TTuple([TInt32, TArray(TInt32)]):
+    def _build_ram_table(self, ai, af, freq) -> TTuple([TInt32, TArray(TInt32)]):  # pyright: ignore[reportInvalidTypeForm]
         # perform on host
         k_ideal = round(N_CYCLES_IN_RAM/(N_SINE*freq*(4*ns)))
         k = min(5000, max(1, k_ideal))

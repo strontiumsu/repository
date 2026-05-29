@@ -4,20 +4,15 @@ Created on Mon Jan 30 18:16:29 2023
 
 @author: ejporter
 
-Desc: This file contains the class that controls all blue MOT  and red MOT methods (loading, MOT coils, etc.)
+Desc: This file contains the class that controls all blue MOT and red MOT methods (loading, MOT coils, etc.)
 """
 
-# from artiq.experiment import ms, us, MHz, ns
-# from artiq.experiment import NumberValue, TInt32
-# from artiq.experiment import parallel, sequential, delay, at_mu
-# from artiq.experiment import kernel, EnvExperiment
-from artiq.experiment import *
-
-from artiq.coredevice import ad9910
+from artiq.experiment import ms, us, MHz, ns, NumberValue, TInt32,  parallel, sequential # pyright: ignore[reportMissingImports]
+from artiq.experiment import kernel, EnvExperiment, BooleanValue,  delay, at_mu, now_mu # pyright: ignore[reportMissingImports]
+from artiq.coredevice import ad9910 # pyright: ignore[reportMissingImports]
 
 import numpy as np
-from CameraClass import _Camera
-import matplotlib.pyplot as plt
+
 
 class _Cooling(EnvExperiment):
 

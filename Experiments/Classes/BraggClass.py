@@ -7,11 +7,11 @@ Created on Mon Feb 14 15:48:49 2022
 
 """
 
-from artiq.experiment import EnvExperiment, NumberValue, delay, ms, kernel, TInt32, parallel, us
-from artiq import *
+from artiq.experiment import EnvExperiment, NumberValue, delay, ms, kernel, TInt32, parallel, us    # pyright: ignore[reportMissingImports]
+
 import numpy as np
 
-from artiq.coredevice.ad9910 import PHASE_MODE_TRACKING
+from artiq.coredevice.ad9910 import PHASE_MODE_TRACKING # pyright: ignore[reportMissingImports]
 
 class _Bragg(EnvExperiment):
 

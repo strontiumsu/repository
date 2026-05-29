@@ -6,14 +6,15 @@ Created on Thu Mar 13 17:54:26 2025
 """
 
 from scan_framework import Scan1D, TimeScan
-from artiq.experiment import *
-import numpy as np
+
+from artiq.experiment import Scannable, RangeScan, EnumerationValue, BooleanValue, NumberValue, at_mu, sequential, s # pyright: ignore[reportMissingImports]
+from artiq.experiment import kernel, EnvExperiment, kHz, delay, ms, parallel, us, MHz, now_mu, ns # pyright: ignore[reportMissingImports]
 
 
 from CoolingClass import _Cooling
 from CameraClass import _Camera
 from BraggClass import _Bragg
-from repository.models.scan_models import LifetimeModel
+from repository.models.scan_models import LifetimeModel # pyright: ignore[reportMissingImports]
 
 
 class DipoleTrapLifetime_exp(Scan1D, TimeScan, EnvExperiment):

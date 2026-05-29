@@ -6,9 +6,11 @@ Created on Tue Jan 21 13:37:31 2025
 """
 
 from scan_framework import Scan2D
-from artiq.experiment import *
+from artiq.experiment import Scannable, RangeScan, EnumerationValue, BooleanValue, NumberValue, at_mu, sequential, s # pyright: ignore[reportMissingImports]
+from artiq.experiment import kernel, EnvExperiment, kHz, delay, ms, parallel, us, MHz, now_mu, ns # pyright: ignore[reportMissingImports]
+
 import numpy as np
-import pyvisa
+
 
 
 
@@ -18,8 +20,8 @@ from CameraClass import _Camera
 from StateControlClass import _state_control
 from BraggClass import _Bragg
 
-from repository.models.scan_models import RamseyPhaseModel
-from repository.models.scan_models import RamseyDecayModel
+from repository.models.scan_models import RamseyPhaseModel # pyright: ignore[reportMissingImports]
+from repository.models.scan_models import RamseyDecayModel # pyright: ignore[reportMissingImports]
 
 
 class ClockRamseyPhase2D_exp(Scan2D, EnvExperiment):

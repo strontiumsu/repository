@@ -6,7 +6,7 @@ Created on Fri Jan 17 13:51:02 2025
 """
 
 
-from artiq.experiment import EnvExperiment, kernel, BooleanValue, us
+from artiq.experiment import EnvExperiment, kernel, BooleanValue, us    # pyright: ignore[reportMissingImports]
 from StateControlClass import _state_control
 
 class State_Control_set(EnvExperiment):

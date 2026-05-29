@@ -5,7 +5,7 @@ Created on Tue Jan 31 10:03:56 2023
 @author: E. Porter
 """
 
-from artiq.experiment import EnvExperiment, BooleanValue, kernel, ms, NumberValue, delay, parallel, sequential, RTIOUnderflow
+from artiq.experiment import EnvExperiment, BooleanValue, kernel, ms, NumberValue, delay, parallel, sequential, RTIOUnderflow # pyright: ignore[reportMissingImports]
 
 # imports
 import numpy as np

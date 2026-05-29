@@ -5,16 +5,19 @@ Created on Tue Jan 21 13:37:31 2025
 @author: sr
 """
 
-from artiq.experiment import *
-from scan_framework import Scan1D, TimeFreqScan
+
+from artiq.experiment import Scannable, RangeScan, EnumerationValue, BooleanValue, NumberValue, at_mu, sequential, s # pyright: ignore[reportMissingImports]
+from artiq.experiment import kernel, EnvExperiment, kHz, delay, ms, parallel, us, MHz, now_mu, ns # pyright: ignore[reportMissingImports]
+from artiq.coredevice import ad9910 # pyright: ignore[reportMissingImports]
+from scan_framework import Scan1D
 import numpy as np
-from artiq.coredevice import ad9910
+
 
 from CoolingClass import _Cooling
 from BraggClass import _Bragg
 from CameraClass import _Camera
 from StateControlClass import _state_control
-from repository.models.scan_models import RamseyPhaseModel as myModel
+from repository.models.scan_models import RamseyPhaseModel as myModel # pyright: ignore[reportMissingImports]
 
 import time
 

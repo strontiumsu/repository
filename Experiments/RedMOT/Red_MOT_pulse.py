@@ -7,7 +7,7 @@ Created on Thu Feb  2 11:17:41 2023
 
 # make available artiq classes for us
 
-from artiq.experiment import EnvExperiment, kernel, ms,us, MHz, NumberValue, delay, parallel, sequential, now_mu,BooleanValue
+from artiq.experiment import EnvExperiment, kernel, ms,us, MHz, NumberValue, delay, parallel, sequential, now_mu,BooleanValue # pyright: ignore[reportMissingImports]
 
 # imports
 import numpy as np

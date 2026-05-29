@@ -5,16 +5,17 @@ Created on Thu Feb  2 12:41:16 2023
 @author: E. Porter
 """
 
-from artiq.experiment import delay, NumberValue, ms, kernel, EnvExperiment, TInt32, BooleanValue, rpc, EnumerationValue, TArray, TTuple
+from artiq.experiment import delay, NumberValue, ms, kernel, EnvExperiment # pyright: ignore[reportMissingImports]
+from artiq.experiment import TInt32, BooleanValue, rpc, EnumerationValue, TArray # pyright: ignore[reportMissingImports]
+
 import numpy as np
 from scipy.optimize import curve_fit
 from scipy.signal import medfilt
 from scipy.ndimage import gaussian_filter
-import matplotlib.pyplot as plt
-from PIL import Image
 import time
 import json
 from pathlib import Path
+
 
 class _Camera(EnvExperiment):
     
@@ -158,7 +159,7 @@ class _Camera(EnvExperiment):
         delay(time)
 
     @rpc     
-    def process_image(self, save=True, name='', bg_sub=True, return_ports=[]) -> TArray(TInt32):
+    def process_image(self, save=True, name='', bg_sub=True, return_ports=[]) -> TArray(TInt32, 1): # pyright: ignore[reportInvalidTypeForm]
         # pulls the current image, saves/bg subs as needed. Saves to current image dataset
         self.acquire_frame()
        
@@ -222,7 +223,7 @@ class _Camera(EnvExperiment):
         center_x, center_y = np.unravel_index(img.argmax(), img.shape)
         val_max = self.current_image[center_x, center_y]
         guess = [val_max, center_x, center_y, 30, 30, 0]
-        popt, pcov = curve_fit(_twoDGaussian, self.xdata, img.ravel(), p0=guess, maxfev=15000)
+        popt, _ = curve_fit(_twoDGaussian, self.xdata, img.ravel(), p0=guess, maxfev=15000)
         
         self.mutate_dataset("gaussianparams", self.ind-1, popt)
 

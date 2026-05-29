@@ -6,9 +6,11 @@ Created on Tue Jan 21 13:37:31 2025
 """
 
 from scan_framework import Scan1D, TimeFreqScan
-from artiq.experiment import *
-import numpy as np
-import pyvisa
+
+from artiq.experiment import Scannable, RangeScan, EnumerationValue, BooleanValue, NumberValue, at_mu, sequential, s # pyright: ignore[reportMissingImports]
+from artiq.experiment import kernel, EnvExperiment, kHz, delay, ms, parallel, us, MHz, now_mu, ns # pyright: ignore[reportMissingImports]
+
+
 
 
 
@@ -17,7 +19,7 @@ from CameraClass import _Camera
 
 from StateControlClass import _state_control
 from BraggClass import _Bragg
-from repository.models.scan_models import AI_Rabi_Model as myModel
+from repository.models.scan_models import AI_Rabi_Model as myModel # pyright: ignore[reportMissingImports]
 
 
 class ClockExcitation_exp(Scan1D, TimeFreqScan, EnvExperiment):

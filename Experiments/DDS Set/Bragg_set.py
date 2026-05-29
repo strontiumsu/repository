@@ -6,7 +6,7 @@ Created on Thu Jun 15 13:50:24 2023
 """
 
 
-from artiq.experiment import *
+from artiq.experiment import EnvExperiment, kernel, BooleanValue, delay,ms    # pyright: ignore[reportMissingImports]
 import numpy as np
 
 from BraggClass import _Bragg
