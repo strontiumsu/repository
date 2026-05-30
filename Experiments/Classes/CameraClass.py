@@ -53,6 +53,7 @@ class _Camera(EnvExperiment):
                 
         self.xsize = 314
         self.ysize = 264
+
         self.current_image = np.zeros((self.xsize, self.ysize)) 
         self.background_image = np.zeros((self.xsize, self.ysize)) 
         
@@ -67,17 +68,14 @@ class _Camera(EnvExperiment):
 
 
     def prep_datasets(self,x):
-        self.set_dataset("detection.counts",x, broadcast=True)    
+        self.set_dataset("detection.counts", x, broadcast=True)    
 
     @rpc 
-    def camera_init(self, N=2, scheme=0):
+    def camera_init(self, N=2):
         """Initializes camera settings and parameters for data 
         analysis. Also sets up some parameters for display and 
         analysis of images.
-        scheme: sets parameters for display and analysis of 
-        images. 0 is for 689 horizontal push, 1 is for 689 
-        horizontal double push, 2 is for 689 vertical push, 3 
-        is for Bragg spectroscopy. 
+       
 
         arms the camera at the end of initialization.
         """
@@ -93,7 +91,6 @@ class _Camera(EnvExperiment):
         self.cam.get_all_images() ## clears buffer
 
         # for data analysis
-        self.pix2um = 67.8
         X, Y = np.meshgrid(np.arange(0, self.ysize, 1), np.arange(0, self.xsize, 1))
         self.xdata = np.vstack((X.ravel(), Y.ravel()))
         
@@ -158,17 +155,17 @@ class _Camera(EnvExperiment):
         # add in a kernel function for delaying camera exposure
         delay(time)
 
-    @rpc     
+    @rpc
     def process_image(self, save=True, name='', bg_sub=True, return_ports=[]) -> TArray(TInt32, 1): # pyright: ignore[reportInvalidTypeForm]
         # pulls the current image, saves/bg subs as needed. Saves to current image dataset
         self.acquire_frame()
-       
+
         if save:
             self.set_dataset(f"detection.images.Raw_{name}{self.ind}", self.current_image)
-        
-        if bg_sub: 
-            self.current_image = np.subtract(self.current_image,self.background_image,dtype=np.int16)
-               
+
+        if bg_sub:
+            self.current_image = np.subtract(self.current_image, self.background_image, dtype=np.int16)
+
         if self.Median_Filter:
             self.current_image = medfilt(self.current_image, 3)
         if self.Gaussian_Filter:
@@ -176,21 +173,19 @@ class _Camera(EnvExperiment):
         if save:
             self.set_dataset(f"detection.images.{name}{self.ind}", self.current_image)
 
-        display_image = np.copy(self.current_image)
-        self.ports_counts = {}
-        for port_name, port in self.ports.items():
-            x, y, w, h = port["x"], port["y"], port["w"], port["h"]
-            c = int(np.sum(self.current_image[x:x+w, y:y+h]))
-            self.ports_counts[port_name] = c
+        ## fake image for testing
+        # shape = self.current_image.shape
+        # cx, cy = shape[0] / 2, shape[1] / 2
+        # sigma = 15.0
+        # amplitude = 500.0
+        # background = 10.0
+        # xx, yy = np.meshgrid(np.arange(shape[1]), np.arange(shape[0]))
+        # gauss = amplitude * np.exp(-((yy - cx) ** 2 + (xx - cy) ** 2) / (2 * sigma ** 2))
+        # noise = np.random.normal(0, np.sqrt(background), size=shape)
+        # self.current_image = (gauss + background + noise).astype(np.int16)
 
-            self.set_dataset(f"detection.counts.{port_name}{self.ind}", c )
-            self._draw_box(display_image,
-                           x, y, w, h,
-                           port.get("color", 200))
-
-        display_image = np.where(display_image > 0, display_image, 0)
         self.set_dataset("detection.images.current_image",
-                         display_image, broadcast=True)
+                         self.current_image, broadcast=True)
 
         self.ind += 1
 
@@ -231,27 +226,6 @@ class _Camera(EnvExperiment):
 
         return int(10**6*popt[index])
     
-    @rpc
-    def get_push_stats(self) -> TInt32:
-        return self.get_dataset('detection.images.ratio')
-    
-    @rpc
-    def get_count_stats(self) -> TInt32:
-        return int(self.get_dataset('detection.images.total_counts'))
-    
-    @rpc
-    def get_totalcount_stats(self) -> TInt32:
-        return self.get_dataset('detection.images.total_counts')
-
-    @rpc
-    def get_totalcount_stats_port2(self) -> TInt32:
-        return self.get_dataset('detection.images.total_counts_port2')
-    @rpc
-    def get_peak(self) -> TInt32:
-        img = np.array(self.get_dataset("detection.images.current_image"))
-        cx, cy = np.unravel_index(img.argmax(), img.shape  )
-        return int(cy)
-
         
 def fit2DGaussian(x, y, A, center_x, center_y, sigma_x_sq, sigma_y_sq, offset):
     return A*np.exp(-((x-center_x)**2/(2*sigma_x_sq) + (y-center_y)**2/(2*sigma_y_sq)))

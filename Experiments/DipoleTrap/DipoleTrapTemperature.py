@@ -23,14 +23,13 @@ class DipoleTrapTemperature_exp(Scan1D, TimeScan, EnvExperiment):
 
         super().build(**kwargs)
         self.setattr_device("ttl5")
-        self.enable_pausing = True
-        self.enable_auto_tracking = False
-        self.enable_profiling = False
 
         # import classes for experiment control
         self.MOTs = _Cooling(self)
         self.Camera = _Camera(self)
         self.Bragg = _Bragg(self)
+
+        self.enable_auto_tracking = False
 
         # scan settings
         self.scan_arguments(times = {'start':0.1*1e-3,

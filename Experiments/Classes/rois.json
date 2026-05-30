@@ -2,19 +2,20 @@
   "_doc": "ROI definitions per experiment. Coordinates are (x, y, w, h) in pixels of the cropped image (after cam_range).",
   "_coordinate_system": "x = horizontal (column index), y = vertical (row index), origin top-left. Inclusive of (x,y), spans w pixels right and h pixels down.",
 
-  "horizontal_push_689UNTESTED": {
+  "horizontal_push_689": {
     "description": "689 nm horizontal push spectroscopy. Port 2 is the pushed cloud, port 1 is the unpushed cloud.",
     "ports": {
-      "port1_unpushed": {"x": 160, "y": 40,  "w": 70, "h": 200, "color": 200},
-      "port2_pushed":   {"x": 230, "y": 40,  "w": 60, "h": 200, "color": 200}
+      "port1_pushed": {"x": 160, "y": 60,  "w": 70, "h": 80, "color": 200},
+      "port2_unpushed":   {"x": 230, "y": 60,  "w": 60, "h": 80, "color": 200}
     }
   },
 
-  "horizontal_double_push_689UNTESTED": {
+  "horizontal_double_push_689": {
     "description": "689 nm double-push variant.",
     "ports": {
-      "port1": {"x": 90,  "y": 40,  "w": 70, "h": 200, "color": 200},
-      "port2": {"x": 160, "y": 40,  "w": 70, "h": 200, "color": 200}
+      "port1_push2": {"x": 110, "y": 60,  "w": 60, "h": 80, "color": 200},
+      "port2_push1":   {"x": 170, "y": 60,  "w": 60, "h": 80, "color": 200},
+      "port3_unpushed": {"x": 230, "y": 60, "w": 60, "h": 80, "color": 200}
     }
   },
 

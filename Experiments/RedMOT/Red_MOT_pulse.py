@@ -42,7 +42,7 @@ class Red_MOT_pulse_exp(EnvExperiment):
         self.Camera.camera_init(N=int(self.pulses) + 10)
         
      
-        
+    @kernel 
     def run(self):
         # initial devices
         self.init_exp()     
@@ -52,63 +52,55 @@ class Red_MOT_pulse_exp(EnvExperiment):
 
 
 
-    @kernel 
+    @kernel
     def init_exp(self):
         self.core.reset()
-        delay(10*ms)
+
         self.MOTs.init_coils()
         self.MOTs.init_ttls()
         self.MOTs.init_aoms(on=False)
         delay(10*ms)
-        
 
         self.MOTs.take_background_image_exp(self.Camera)
-        delay(100*ms)
+
+        self.MOTs.AOMs_off_all()
+        self.MOTs.atom_source_off()
+
         
-        self.core.wait_until_mu(now_mu())
+
         
         
     @kernel
     def run_exp(self):
- 
-        self.core.reset()
         delay(10*ms)
-        self.ttl5.off()
-        for i in range(int(self.pulses)):
-            delay(10*ms)
-            # self.Camera.arm()
-            # delay(500*ms) 
-        
-            
+
+        for _ in range(int(self.pulses)):
             self.MOTs.init_rmot_dds(self.MOTs.rmot_freq_i, self.MOTs.rmot_freq_f, self.MOTs.rmot_freq_depth_i,self.MOTs.rmot_freq_depth_f, self.MOTs.freq_3D_red)
-            delay(100*ms)
+            self.core.break_realtime()
+            delay(5*ms)
 
             # generate red mot
             self.MOTs.rMOT_pulse_new()
-            
+
             delay(self.wait_time)
-             
+
             self.MOTs.take_MOT_image(self.Camera)
-            self.ttl5.off() 
-            
             delay(10*ms)
-            self.Camera.process_image(bg_sub=True)
-            delay(300*ms)
+
             self.core.wait_until_mu(now_mu())
-            delay(200*ms)
-            
-            # turn on 3D, and repumps
-            self.MOTs.aom_3D_blue.sw.off()
-            self.MOTs.aom_3P0.sw.off()
-            self.MOTs.aom_3P2.sw.off()
-            delay(self.wait_time)
+            self.Camera.process_image(bg_sub=True)
+            self.core.break_realtime()
+            delay(10*ms)
+
+            # turn off aoms
+            self.MOTs.AOMs_off_all()
+            delay(50*ms)
+
             
     @kernel
     def cleanup(self):
-        self.core.reset()
         delay(20*ms)
-        for i in range(3):
-            self.MOTs.urukul_channels[i].sw.on()
+        self.MOTs.AOMs_on_all()
         self.MOTs.atom_source_on()
         
          
