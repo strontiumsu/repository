@@ -73,13 +73,11 @@ class Red_MOT_pulse_exp(EnvExperiment):
     @kernel
     def run_exp(self):
         delay(10*ms)
+        self.MOTs.init_rmot_dds(self.MOTs.rmot_freq_i, self.MOTs.rmot_freq_f, self.MOTs.rmot_freq_depth_i,self.MOTs.rmot_freq_depth_f, self.MOTs.freq_3D_red)
+        self.core.break_realtime()
+        delay(10*ms)
 
         for _ in range(int(self.pulses)):
-            self.MOTs.init_rmot_dds(self.MOTs.rmot_freq_i, self.MOTs.rmot_freq_f, self.MOTs.rmot_freq_depth_i,self.MOTs.rmot_freq_depth_f, self.MOTs.freq_3D_red)
-            self.core.break_realtime()
-            delay(5*ms)
-
-            # generate red mot
             self.MOTs.rMOT_pulse_new()
 
             delay(self.wait_time)
@@ -87,9 +85,11 @@ class Red_MOT_pulse_exp(EnvExperiment):
             self.MOTs.take_MOT_image(self.Camera)
             delay(10*ms)
 
+            # always use this block to readout images
             self.core.wait_until_mu(now_mu())
             self.Camera.process_image(bg_sub=True)
             self.core.break_realtime()
+
             delay(10*ms)
 
             # turn off aoms

@@ -181,7 +181,7 @@ class _Cooling(EnvExperiment):
         
         delay(1*ms)
         self.ttl1.count(t_end) # clears cache
-        delay(50*ms)
+        delay(15*ms)  # lowered from 50ms -> 15ms
 
 
     @kernel 
@@ -485,84 +485,6 @@ class _Cooling(EnvExperiment):
         delay(10*ms)
         self.core.wait_until_mu(now_mu())
         
-            
-    @kernel
-    def init_rmot_dds_new(self, rmot_freq_i=180.5*MHz, rmot_freq_f=180.5*MHz, rmot_freq_depth_i=5.0*MHz, rmot_freq_depth_f=0.5*MHz, rmot_sf_freq=180.0*MHz):
-        self.core.reset()
-        delay(10*ms)
-        f0_i=rmot_freq_i
-        f0_f=rmot_freq_f 
-        depth_i=rmot_freq_depth_i
-        depth_f=rmot_freq_depth_f 
-        
-        
-        flength = int(1022/self.nprofiles)
-        self.step_size = int((1/self.rmot_scan_frequency)/(flength*4*ns)) # save last 2 entries entry for single freq mode
-        
-        # write in sf mode freqs
-        self.freq_list[0] = rmot_sf_freq #[self.freq_3D_red]*2
-        self.freq_list[1] = rmot_sf_freq
-
-        
-        for p in range(int(self.nprofiles)):
-
-            fstart = f0_i + (f0_f-f0_i)*(p/(self.nprofiles-1)) - (depth_i + (depth_f-depth_i)*(p/(self.nprofiles-1)))
-            fend = f0_i + (f0_f-f0_i)*(p/(self.nprofiles-1))
-            
-            for f_ind in range(flength):
-                self.freq_list[p*flength + f_ind + 2] = fend + (fstart-fend) * f_ind/(flength-1)
-                
-
-        self.aom_3D_red.frequency_to_ram(self.freq_list, self.freq_list_ram)
-
-        
-        self.core.break_realtime()
-        delay(10 * ms)
-        
-        #urn off RAM mode to prepare to write
-        self.aom_3D_red.set_cfr1(ram_enable=0)
-        self.aom_3D_red.cpld.io_update.pulse_mu(8)
-        
-
-        # write in the signal frequency stage directly
-        self.aom_3D_red.set_profile_ram(
-            start=0, end=1, step=(int(self.step_size) | (2**6 - 1 ) << 16),
-            profile=0, mode=ad9910.RAM_MODE_CONT_RAMPUP)
-        
-        # write in  nprofiles worth of RAM split over 1022 RAM entries
-        flength = int(1022/self.nprofiles)
-        for p in range(int(self.nprofiles)):
-            delay(1*ms)
-            self.aom_3D_red.set_profile_ram(
-            start=p*flength+2, end=(p+1)*flength-1+2, step=(int(self.step_size) | (2**6 - 1 ) << 16),
-            profile=p+1, mode=ad9910.RAM_MODE_CONT_RAMPUP)
-        delay(1*ms)
-        
-        
-        
-        # write ram entries for scanning ram sections
-        for p in range(int(self.nprofiles)):
-            delay(5*ms)
-            self.aom_3D_red.cpld.set_profile(p+1)
-            self.aom_3D_red.cpld.io_update.pulse_mu(8)
-           # print("writing RAM with following first few values:", self.freq_list_ram[:4])
-            self.aom_3D_red.write_ram(self.freq_list_ram[p*flength+2:(p+1)*flength+2]) 
-
-        # write in RAM for fixed profile 7 
-        delay(5*ms)
-        self.aom_3D_red.cpld.set_profile(0)
-        self.aom_3D_red.cpld.io_update.pulse_mu(8)
-        self.aom_3D_red.write_ram(self.freq_list_ram[0:2]) 
-        
-        # get ready by setting to profile 0 and queueing up RAM mode
-        delay(1*ms)
-        self.aom_3D_red.cpld.set_profile(0)
-        delay(50*ms)
-        
-        self.aom_3D_red.set_cfr1(ram_enable=1, ram_destination=ad9910.RAM_DEST_FTW)
-        self.aom_3D_red.cpld.io_update.pulse_mu(8)
-        delay(10*ms)
-        self.core.wait_until_mu(now_mu())
     
 
     #<><><><><><><><><><><>
@@ -629,13 +551,12 @@ class _Cooling(EnvExperiment):
 
 
     @kernel 
-    def rMOT_pulse_new(self, sf=False, atten_scale_factor=3.0, sf_amp = 0.05, dipole_on = True):
+    def rMOT_pulse_new(self, sf=False, atten_scale_factor=3.0, sf_amp=0.05, dipole_on = True):
         self.atom_source_on() # opens on zeeman and 2D shutters
         self.close_688() # close 688 shutter to prevent leakage from optical pumping
         self.aom_3D_blue.set_att(self.atten_3D)
         self.aom_3D_red.set_att(self.atten_3D_red)
         self.aom_3D_red.set_amplitude(0.8)
-
         self.urukul1_cpld.set_profile(0)
 
         
@@ -654,10 +575,10 @@ class _Cooling(EnvExperiment):
         
        # line trigger for consistent time relative to mains
         self.line_trigger()
-        delay(150*ms)
+        # delay(150*ms) # removed
         
         # turn on broad band red mot (profile 0)
-        self.aom_3D_red.cpld.io_update.pulse_mu(8)
+        # self.aom_3D_red.cpld.io_update.pulse_mu(8) # removed
         delay(5*us)
         self.aom_3D_red.sw.on()
         
