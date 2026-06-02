@@ -58,15 +58,6 @@ class bare_cavity_dual_scan_exp(Scan1D, EnvExperiment):
                                   unit='us'),
                               "parameters")
         
-        self.setattr_argument("pause_time", 
-                              NumberValue(
-                                  2.0,
-                                  min=0.1,
-                                  max=5.0,
-                                  scale=1e0,
-                                  unit='s'),
-                              "parameters")
-
 
         
     def get_scan_points(self):
@@ -88,7 +79,7 @@ class bare_cavity_dual_scan_exp(Scan1D, EnvExperiment):
         
     @kernel
     def measure(self, point):
-        self.core.wait_until_mu(now_mu())
+        self.core.break_realtime()
         delay(10 * ms)
 
         self.Bragg.aom_sideband.set_att(self.Bragg.atten_Sideband)      
@@ -97,7 +88,7 @@ class bare_cavity_dual_scan_exp(Scan1D, EnvExperiment):
 
         # probe cavity once with sideband AOM
         self.ttl5.on()    
-        self.Bragg.self.aom_sideband.sw.on()
+        self.Bragg.aom_sideband.sw.on()
         delay(self.probe_time)
         self.Bragg.aom_sideband.sw.off()
 

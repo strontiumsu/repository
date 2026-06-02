@@ -92,6 +92,7 @@ class DipoleTrapTemperature_exp(Scan1D, TimeScan, EnvExperiment):
         #initialize devices on host
         self.core.reset()
         self.MOTs.init_coils()
+        self.MOTs.init_ttls()
         self.MOTs.init_aoms(on=False)  # initializes whiling keeping them off
         self.Bragg.init_aoms()
         delay(10*ms)
@@ -134,6 +135,11 @@ class DipoleTrapTemperature_exp(Scan1D, TimeScan, EnvExperiment):
         self.Camera.process_image(bg_sub=True)
         self.Camera.process_gaussian()
         self.core.break_realtime()
+
+        delay(10*ms)
+
+        self.MOTs.AOMs_on_all()
+        delay(50*ms)
 
         return 0
 

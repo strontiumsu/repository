@@ -106,7 +106,7 @@ class ClockRamseyPhase_exp(Scan1D, EnvExperiment):
         #init AOMs
         self.MOTs.init_aoms(on=False)  
         self.State_Control.init_aoms(on=False)
-        self.Bragg.init_aoms(switches=0x9)
+        self.Bragg.init_aoms()
         
         delay(10*ms)
         

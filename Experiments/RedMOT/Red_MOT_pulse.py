@@ -7,7 +7,7 @@ Created on Thu Feb  2 11:17:41 2023
 
 # make available artiq classes for us
 
-from artiq.experiment import EnvExperiment, kernel, ms,us, MHz, NumberValue, delay, parallel, sequential, now_mu,BooleanValue # pyright: ignore[reportMissingImports]
+from artiq.experiment import EnvExperiment, kernel, ms, NumberValue, delay, parallel, sequential, now_mu,BooleanValue # pyright: ignore[reportMissingImports]
 
 # imports
 import numpy as np
@@ -19,10 +19,9 @@ class Red_MOT_pulse_exp(EnvExperiment):
     def build(self):
         self.setattr_device("core")
         self.setattr_device("scheduler")
+
         self.MOTs = _Cooling(self)
         self.Camera = _Camera(self)
-        
-        self.setattr_device("ttl5") # triggering pulse
 
 
         # attributes for this experiment
@@ -38,8 +37,9 @@ class Red_MOT_pulse_exp(EnvExperiment):
         # initial datasets for the aoms and mot coils, does not run on core
         self.MOTs.prepare_aoms()
         self.MOTs.prepare_coils()
+
         # Initialize camera
-        self.Camera.camera_init(N=int(self.pulses) + 10)
+        self.Camera.camera_init(N=int(self.pulses) + 1)
         
      
     @kernel 
@@ -73,13 +73,17 @@ class Red_MOT_pulse_exp(EnvExperiment):
     @kernel
     def run_exp(self):
         delay(10*ms)
-        self.MOTs.init_rmot_dds(self.MOTs.rmot_freq_i, self.MOTs.rmot_freq_f, self.MOTs.rmot_freq_depth_i,self.MOTs.rmot_freq_depth_f, self.MOTs.freq_3D_red)
+        self.MOTs.init_rmot_dds(self.MOTs.rmot_freq_i, 
+                                self.MOTs.rmot_freq_f, 
+                                self.MOTs.rmot_freq_depth_i,
+                                self.MOTs.rmot_freq_depth_f, 
+                                self.MOTs.freq_3D_red)
+        
         self.core.break_realtime()
         delay(10*ms)
 
         for _ in range(int(self.pulses)):
             self.MOTs.rMOT_pulse_new()
-
             delay(self.wait_time)
 
             self.MOTs.take_MOT_image(self.Camera)

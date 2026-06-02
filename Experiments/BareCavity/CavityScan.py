@@ -139,7 +139,7 @@ class bare_cavity_scan_exp(Scan1D, EnvExperiment):
     def load_mod(self, dds):
         # one host round-trip, table arrives prepacked
         step = int(self.scan_time/(1024*4*ns))
-        ram_data = self._build_ram_table(dds, self.freq_center, self.freq_weidth)
+        ram_data = self._build_ram_table(dds, self.freq_center, self.freq_width)
         self.core.break_realtime()  # RPC ate ~ms of wall clock
         delay(1*ms)
         

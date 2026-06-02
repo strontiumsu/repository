@@ -162,11 +162,10 @@ class _Cooling(EnvExperiment):
           
     @kernel
     def init_ttls(self):
-        delay(100*ms)
-        #self.ttl6.output()
+        delay(10*ms)
+        self.ttl5.output()
         self.ttl1.input()
         delay(10*ms)
-        #self.ttl6.on()
         
     @kernel
     def line_trigger(self, offset=5*ms):

@@ -62,8 +62,9 @@ class DipoleTrapFrequency_exp(Scan1D, TimeScan, EnvExperiment):
     def before_scan(self):
         self.core.reset()
         self.MOTs.init_coils()
+        self.MOTs.init_ttls()
         self.MOTs.init_aoms(on=False)  # initializes whiling keeping them off
-        self.Bragg.init_aoms(switches=0x9)
+        self.Bragg.init_aoms()
 
         delay(10*ms)
 
@@ -110,12 +111,12 @@ class DipoleTrapFrequency_exp(Scan1D, TimeScan, EnvExperiment):
         ports=self.Camera.process_image(bg_sub=True, return_ports=["narrow", "wide"])
         self.core.break_realtime()
 
-
-
         self.MOTs.AOMs_on_all()
         delay(10*ms)
 
-        return int(1e6*ports[0]/ports[1])
+        # return ratio of two ports
+        narrow, wide = ports[0], ports[1]
+        return int(1e6*narrow/wide)
     
     def after_fit(self, fit_name, valid, saved, model):
-        self.set_dataset('current_scan.plots.error', model.errors, broadcast=True, persist=True)
+        self.set_dataset('current_scan.plots.error', model.errors, broadcast=True)

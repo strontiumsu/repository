@@ -28,8 +28,8 @@ thing changing is the lattice's RAM address range.
 
 from scan_framework import Scan1D, FreqScan
 
-from artiq.experiment import TInt32, TArray, TTuple, Scannable, RangeScan, EnumerationValue, BooleanValue, NumberValue, at_mu, sequential, s # pyright: ignore[reportMissingImports]
-from artiq.experiment import rpc, kernel, EnvExperiment, kHz, delay, ms, parallel, us, MHz, now_mu, ns # pyright: ignore[reportMissingImports]
+from artiq.experiment import TInt32, TArray, TTuple, EnumerationValue, NumberValue # pyright: ignore[reportMissingImports]
+from artiq.experiment import rpc, kernel, EnvExperiment, kHz, delay, ms, us, now_mu, ns # pyright: ignore[reportMissingImports]
 from artiq.coredevice import ad9910 # pyright: ignore[reportMissingImports]
 import numpy as np
 
@@ -37,7 +37,6 @@ import numpy as np
 from CoolingClass import _Cooling
 from CameraClass import _Camera
 from BraggClass import _Bragg
-from scipy import constants
 
 from repository.models.scan_models import DipoleFreqModel # pyright: ignore[reportMissingImports]
 
@@ -51,7 +50,6 @@ class DipoleTrapFrequencyAxial_exp(Scan1D, FreqScan, EnvExperiment):
 
     def build(self, **kwargs):
         super().build(**kwargs)
-        self.setattr_device("ttl5")
 
         self.MOTs = _Cooling(self)
         self.Camera = _Camera(self)
@@ -103,11 +101,10 @@ class DipoleTrapFrequencyAxial_exp(Scan1D, FreqScan, EnvExperiment):
     def prepare(self):
         self.MOTs.prepare_aoms()
         self.MOTs.prepare_coils()
-        self.Camera.camera_init(N=len(list(self.get_scan_points()))*self.nrepeats*self.npasses + 10)
         self.Bragg.prepare_aoms()
+
+        self.Camera.camera_init(N=len(list(self.get_scan_points()))*self.nrepeats*self.npasses + 1)
         
-        # register model with scan framework
-        self.enable_histograms = True
         self.model = DipoleFreqModel(self)
         self.register_model(self.model, measurement=True, fit=True)
 
@@ -115,8 +112,10 @@ class DipoleTrapFrequencyAxial_exp(Scan1D, FreqScan, EnvExperiment):
     def before_scan(self):
         self.core.reset()
         self.MOTs.init_coils()
+        self.MOTs.init_ttls()
         self.MOTs.init_aoms(on=False)
-        self.Bragg.init_aoms(switches=0x9)
+        self.Bragg.init_aoms()
+
         delay(10*ms)
 
         self.MOTs.take_background_image_exp(self.Camera)
@@ -124,15 +123,25 @@ class DipoleTrapFrequencyAxial_exp(Scan1D, FreqScan, EnvExperiment):
         
         self.MOTs.AOMs_off_all()
         self.MOTs.atom_source_off()
-        
+
         # set the profiles for the dipole trap
         self.Bragg.aom_dipole.set(self.Bragg.freq_Dipole, 0.0, self.Bragg.scale_Dipole, profile=0)
         self.Bragg.aom_dipole.set(self.Bragg.freq_Dipole, 0.0, self.Bragg.scale_Dipole, profile=7)
 
+
+        delay(10*ms)
+        self.MOTs.init_rmot_dds(self.MOTs.rmot_freq_i,
+                                self.MOTs.rmot_freq_f,
+                                self.MOTs.rmot_freq_depth_i,
+                                self.MOTs.rmot_freq_depth_f,
+                                self.MOTs.freq_3D_red)
+
+        
+        
     @kernel
     def before_measure(self, point, measurement):
         # load mod into RAM
-        # dont let the scale go below 0.05
+        self.core.break_realtime()
         delay(1*ms)
         self.load_mod(
             self.Bragg.aom_lattice,
@@ -141,31 +150,21 @@ class DipoleTrapFrequencyAxial_exp(Scan1D, FreqScan, EnvExperiment):
             point,
         )
         delay(1*ms)
-        self.core.break_realtime()
+        
 
 
     @kernel
     def measure(self, point):
-        # point = oscillation frequency
-        self.core.wait_until_mu(now_mu())
-        delay(1*ms)
-
-        self.MOTs.AOMs_off_all()
+        self.core.break_realtime()
         delay(10*ms)
 
-        self.MOTs.init_rmot_dds(
-            self.MOTs.rmot_freq_i, self.MOTs.rmot_freq_f,
-            self.MOTs.rmot_freq_depth_i, self.MOTs.rmot_freq_depth_f,
-            self.MOTs.freq_3D_red)
-        delay(10*ms)
-
-        self.MOTs.rMOT_pulse_new(sf=False)
+        self.MOTs.rMOT_pulse_new()
         delay(self.load_time)
 
         # Start shaking: switch lattice RAM playback to profile 0
         # (addresses 0-1021, the sine cycles).
         self.Bragg.aom_lattice.cpld.set_profile(0)
-        self.ttl5.on()
+        self.MOTs.ttl5.on()
         self.Bragg.aom_lattice.cpld.io_update.pulse_mu(8)
 
 
@@ -177,29 +176,29 @@ class DipoleTrapFrequencyAxial_exp(Scan1D, FreqScan, EnvExperiment):
         else:
             raise Exception("Invalid shake type..")
             
-            
-
+        
         # Stop shaking: switch back to profile 7 (addresses 1022-1023,
-        self.ttl5.off()
+        self.MOTs.ttl5.off()
         self.Bragg.aom_lattice.cpld.set_profile(7)
         self.Bragg.aom_lattice.cpld.io_update.pulse_mu(8)
 
         delay(self.drop_time)
         self.MOTs.take_MOT_image(self.Camera)
+        delay(10*ms)
+
+        self.core.wait_until_mu(now_mu())     
+        ports=self.Camera.process_image(bg_sub=True, return_ports=["narrow", "wide"])
+        self.core.break_realtime()
 
         delay(10*ms)
+
         self.MOTs.AOMs_on_all()
         delay(50*ms)
-        ports = self.Camera.process_image(bg_sub=True, return_ports=["narrow", "wide"])
-        narrow_counts, wide_counts = ports[0], ports[1]
-        self.core.break_realtime()
-        delay(10*ms)
-        return int(10**6 * narrow_counts/wide_counts)
 
 
+        narrow, wide = ports[0], ports[1]
+        return int(1e6 * narrow/wide)
 
-    def after_scan(self):
-        self.Camera.disarm()
 
     @kernel
     def load_mod(self, dds, ai, af, freq):

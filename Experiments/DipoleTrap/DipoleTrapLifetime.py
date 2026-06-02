@@ -65,6 +65,7 @@ class DipoleTrapLifetime_exp(Scan1D, TimeScan, EnvExperiment):
     def before_scan(self):
         self.core.reset()
         self.MOTs.init_coils()
+        self.MOTs.init_ttls()
         self.MOTs.init_aoms(on=False)  # initializes whiling keeping them off
         self.Bragg.init_aoms()
         delay(10*ms)

@@ -98,7 +98,7 @@ class VRS_scan_calib_exp(Scan1D, EnvExperiment):
         self.MOTs.init_ttls()
         self.MOTs.init_aoms(on=False)
         self.State_Control.init_aoms(on=False)
-        self.Bragg.init_aoms(switches=0x9)
+        self.Bragg.init_aoms()
         delay(10*ms)
         
         if self.Image:
