@@ -20,18 +20,10 @@ class bare_cavity_dual_scan_exp(Scan1D, EnvExperiment):
     def build(self, **kwargs):
         
         super().build(**kwargs)
-        self.setattr_device("ttl5") # triggering pulse
-
-        # import classes for experiment control
-
         self.Bragg = _Bragg(self)
-
-        
-                # attributes here
         self.enable_auto_tracking = False
         
         # Arguments 
-        
         self.setattr_argument('pulse_spacing', Scannable(default=RangeScan(
             start=10*us,
             stop=10.01*us,
@@ -76,65 +68,51 @@ class bare_cavity_dual_scan_exp(Scan1D, EnvExperiment):
 
         
     def get_scan_points(self):
-        # return the set of scan points to the framework
         return self.pulse_spacing
-        
         
         
     def prepare(self):
         self.Bragg.prepare_aoms()       
-        self.enable_histograms = True
         
-
-
     @kernel 
     def before_scan(self):
         self.core.reset()
-        self.ttl5.off()
-
+        self.MOTs.ttl5.off()
 
         self.Bragg.init_aoms(on=True)
         self.Bragg.aom_sideband.sw.off()
         self.Bragg.aom_carrier.sw.off()
-        delay(100*ms)
+        delay(15*ms)
 
         
-        self.core.wait_until_mu(now_mu())
-     
         
     @kernel
     def measure(self, point):
-        self.core.reset()
-        delay(1 * ms)
-
-        # before this point is just for preparing the RAM and RIGOL
-        self.core.break_realtime()
-        delay(10*ms)
-        self.Bragg.aom_sideband.set_att(self.Bragg.atten_Sideband)      
+        self.core.wait_until_mu(now_mu())
         delay(10 * ms)
 
-        self.run_exp()
-            
-        
-        delay(self.pause_time)
-        self.core.wait_until_mu(now_mu())
-        return 0
-     
-    
-    @kernel
-    def run_exp(self):
-                        
-        self.ttl5.on()
-        
+        self.Bragg.aom_sideband.set_att(self.Bragg.atten_Sideband)      
+        delay(1 * ms)
+
+
+        # probe cavity once with sideband AOM
+        self.MOTs.ttl5.on()    
         self.Bragg.self.aom_sideband.sw.on()
         delay(self.probe_time)
         self.Bragg.aom_sideband.sw.off()
+
         delay(self.delay_time)
+
+        # probe second time with sideband AOM
         self.Bragg.aom_sideband.sw.on()
         delay(self.probe_time)
-        self.Bragg.aom_sideband.sw.off()
+        self.Bragg.aom_sideband.sw.off()    
+        self.MOTs.ttl5.off()
+   
+        return 0
+     
+
         
-        self.ttl5.off()
             
         
     
