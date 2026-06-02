@@ -193,67 +193,36 @@ class _Camera(EnvExperiment):
         
         self.set_dataset("detection.images.background_image", self.background_image )
         self.set_dataset("detection.images.current_image", self.background_image, broadcast=True)
-
-    @rpc
-    def prep_temp_datasets(self, n):
-        self.set_dataset( "gaussianparams", [[0.0]*6]*n, broadcast=True)
+        
         
         
     @rpc
-    def process_gaussian(self, index) -> TInt32:
+    def process_gaussian(self):
         img = np.array(self.get_dataset("detection.images.current_image"),
                        dtype=np.float64)
         H, W = img.shape   # H = rows (xsize axis), W = cols (ysize axis)
-
-        # For a separable 2D Gaussian, the row and column marginals are themselves
-        # 1D Gaussians with the same centroids and widths. Fitting two 1D
-        # marginals (~250 points, 4 params) instead of the full (H·W) image with
-        # 6 params is ~100× faster and converges much more reliably.
-        #
-        # Image model assumed:
-        #   img(r, c) = A_2D · exp(-((c-c0)²/(2σc²) + (r-r0)²/(2σr²))) + B
-        # ⇒ col marginal (sum over rows):
-        #      Σ_r img(r, c) = A_2D · √(2π σr²) · exp(-(c-c0)²/(2σc²)) + B·H
-        #   row marginal (sum over cols) is analogous.
         col_marg = img.sum(axis=0)            # length W, function of column index
         row_marg = img.sum(axis=1)            # length H, function of row index
 
         col_fit = _fit_1d_gauss(np.arange(W, dtype=np.float64), col_marg)
         row_fit = _fit_1d_gauss(np.arange(H, dtype=np.float64), row_marg)
+        try:
+            amp_col, c0, sigma_c, _ = col_fit   # col fit ⇒ center_x, σ_x in fit terms
+            amp_row, r0, sigma_r, _ = row_fit   # row fit ⇒ center_y, σ_y in fit terms
+            A_2D = 0.5/np.sqrt(2.0 * np.pi) * (amp_col/sigma_r + amp_row/sigma_c)
 
-        if col_fit is None or row_fit is None:
-            print("process_gaussian: marginal fit failed; "
-                  "skipping shot {0}".format(self.ind-1))
-            return 0
+            popt = np.array([A_2D, c0, r0, np.abs(float(sigma_c)), np.abs(float(sigma_r))])
 
-        amp_col, c0, sigma_c, off_col = col_fit   # col fit ⇒ center_x, σ_x in fit terms
-        amp_row, r0, sigma_r, off_row = row_fit   # row fit ⇒ center_y, σ_y in fit terms
+            self.mutate_dataset("gaussianparams", self.ind-1, popt)
+            self.set_dataset("detection.gauss.center_y",   float(popt[1]), broadcast=True)
+            self.set_dataset("detection.gauss.center_x",   float(popt[2]), broadcast=True)
+            self.set_dataset("detection.gauss.sigma_y",    float(popt[3]), broadcast=True)
+            self.set_dataset("detection.gauss.sigma_x",    float(popt[4]), broadcast=True)
 
-        # Back out the 2D amplitude and per-pixel offset so the gaussianparams
-        # row keeps the same [A, cx, cy, σx², σy², offset] layout the rest of
-        # the pipeline (after_scan, applets) already consumes. Each marginal
-        # gives an independent estimate; average them for less noise.
-        sqrt2pi = np.sqrt(2.0 * np.pi)
-        A_2D = 0.5 * (amp_col / (sigma_r * sqrt2pi)
-                      + amp_row / (sigma_c * sqrt2pi))
-        B    = 0.5 * (off_col / H + off_row / W)
+        except Exception:
+            print("Failed fit", str(self.ind-1))
 
-        popt = np.array([A_2D, c0, r0, sigma_c**2, sigma_r**2, B])
 
-        self.mutate_dataset("gaussianparams", self.ind-1, popt)
-
-        sx = float(np.sqrt(popt[3]))
-        sy = float(np.sqrt(popt[4]))
-        self.set_dataset("detection.gauss.A",          float(popt[0]), broadcast=True)
-        self.set_dataset("detection.gauss.center_x",   float(popt[1]), broadcast=True)
-        self.set_dataset("detection.gauss.center_y",   float(popt[2]), broadcast=True)
-        self.set_dataset("detection.gauss.sigma_x_sq", float(popt[3]), broadcast=True)
-        self.set_dataset("detection.gauss.sigma_y_sq", float(popt[4]), broadcast=True)
-        self.set_dataset("detection.gauss.sigma_x",    sx,             broadcast=True)
-        self.set_dataset("detection.gauss.sigma_y",    sy,             broadcast=True)
-        self.set_dataset("detection.gauss.offset",     float(popt[5]), broadcast=True)
-
-        return int(10**6*popt[index])
 
 
 def _gauss1d(x, A, x0, sigma, offset):
@@ -263,37 +232,26 @@ def _gauss1d(x, A, x0, sigma, offset):
 def _fit_1d_gauss(x, y):
     """Fit y = A·exp(-(x-x0)²/(2σ²)) + offset on a single marginal.
     Returns (A, x0, σ, offset) or None on failure."""
-    if x.size < 4:
-        return None
-    # Moment-based seed: estimate the background floor from the marginal's
-    # minimum, then take the weighted centroid and variance of the residual.
-    offset0 = float(np.min(y))
-    weights = y - offset0
-    np.clip(weights, 0.0, None, out=weights)
-    wsum = float(weights.sum())
-    if wsum <= 0 or not np.isfinite(wsum):
-        return None
-    x0_guess = float((x * weights).sum() / wsum)
-    var_guess = float(((x - x0_guess)**2 * weights).sum() / wsum)
-    sigma0 = max(np.sqrt(max(var_guess, 0.0)), 1.0)
-    amp0 = float(np.max(y) - offset0)
-    if amp0 <= 0:
-        return None
 
-    span = float(x.max() - x.min())
-    lo = [0.0,        float(x.min()), 0.5,  -np.inf]
-    hi = [np.inf,     float(x.max()), span,  np.inf]
-    p0 = [amp0, x0_guess, sigma0, offset0]
-    p0 = [min(max(p0[i], lo[i]), hi[i]) for i in range(4)]
+    try:                  
+        # generate good guess                                      
+        offset0 = float(np.min(y))
+        x0_guess = float(x[np.argmax(y)])
+        sigma0 = np.sqrt(np.sum( np.clip(y, 0.0) * (x - x0_guess)**2) / np.sum(np.clip(y, 0.0)))
+        amp0 = float(np.max(y) - offset0)
+        p0 = [amp0, x0_guess, sigma0, offset0]
 
-    try:
+        # build bounds
+        lo = [0.0,        float(x.min()), 0.5,  -np.inf]
+        hi = [np.inf,     float(x.max()), 300,  np.inf]
+       
+        # perform fit and return packed in tuple
         popt, _ = curve_fit(_gauss1d, x, y, p0=p0,
-                            bounds=(lo, hi), maxfev=5000)
-    except Exception:
+                                bounds=(lo, hi), maxfev=15000)
+        return tuple(float(v) for v in popt)
+    except Exception as e: # catch any failure, but don't raise exception
+        print(e)
         return None
-    if not np.all(np.isfinite(popt)) or popt[2] <= 0:
-        return None
-    return tuple(float(v) for v in popt)
 
 
         
