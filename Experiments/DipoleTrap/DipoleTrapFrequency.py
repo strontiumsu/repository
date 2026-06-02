@@ -6,11 +6,7 @@ Created on Thu Mar 13 17:26:44 2025
 """
 
 from scan_framework import Scan1D, TimeScan
-
-from artiq.experiment import Scannable, RangeScan, EnumerationValue, BooleanValue, NumberValue, at_mu, sequential, s # pyright: ignore[reportMissingImports]
-from artiq.experiment import kernel, EnvExperiment, kHz, delay, ms, parallel, us, MHz, now_mu, ns # pyright: ignore[reportMissingImports]
-
-import numpy as np
+from artiq.experiment import kernel, EnvExperiment, NumberValue, delay, ms, us, now_mu# pyright: ignore[reportMissingImports]
 
 
 from CoolingClass import _Cooling
@@ -23,9 +19,7 @@ class DipoleTrapFrequency_exp(Scan1D, TimeScan, EnvExperiment):
 
     def build(self, **kwargs):
         # required initializations
-
         super().build(**kwargs)
-
         self.enable_auto_tracking = False
 
         # import classes for experiment control
@@ -57,17 +51,12 @@ class DipoleTrapFrequency_exp(Scan1D, TimeScan, EnvExperiment):
         #prepare/initialize mot hardware and camera
         self.MOTs.prepare_aoms()
         self.MOTs.prepare_coils()
-        self.Camera.camera_init()
         self.Bragg.prepare_aoms()
-        # register model with scan framework
-        self.enable_histograms = True
+
+        self.Camera.camera_init(N=len(list(self.get_scan_points()))*self.nrepeats*self.npasses + 1)
+        
         self.model = DipoleFreqModel(self)
         self.register_model(self.model, measurement=True, fit=True)
-
-        self.Camera.prep_temp_datasets(len(list(self.get_scan_points())))
-
-
-
 
     @kernel
     def before_scan(self):
@@ -79,13 +68,16 @@ class DipoleTrapFrequency_exp(Scan1D, TimeScan, EnvExperiment):
         delay(10*ms)
 
         self.MOTs.take_background_image_exp(self.Camera)
-        delay(100*ms)
-        self.MOTs.atom_source_on()
-        delay(100*ms)
-        self.MOTs.AOMs_on_all()
-        delay(200*ms)
+        
         self.MOTs.AOMs_off_all()
         self.MOTs.atom_source_off()
+
+        delay(10*ms)
+        self.MOTs.init_rmot_dds(self.MOTs.rmot_freq_i,
+                                self.MOTs.rmot_freq_f,
+                                self.MOTs.rmot_freq_depth_i,
+                                self.MOTs.rmot_freq_depth_f,
+                                self.MOTs.freq_3D_red)
 
 
 
@@ -93,47 +85,37 @@ class DipoleTrapFrequency_exp(Scan1D, TimeScan, EnvExperiment):
     @kernel
     def measure(self, point):
         t_delay = point
-        self.core.wait_until_mu(now_mu())
-        self.core.reset()
-        self.Camera.arm()
-        delay(200*ms)
-
-        self.MOTs.AOMs_off_all()
+        self.core.break_realtime()
         delay(10*ms)
 
-        self.MOTs.init_rmot_dds(self.MOTs.rmot_freq_i, self.MOTs.rmot_freq_f, self.MOTs.rmot_freq_depth_i, self.MOTs.rmot_freq_depth_f, self.MOTs.freq_3D_red)
-        delay(10 * ms)
-
-        self.MOTs.rMOT_pulse_new(sf=False)
+      
+        self.MOTs.rMOT_pulse_new()
         delay(self.load_time)
 
 
+        ## EXP SEQUENCE
         self.Bragg.aom_dipole.set_att(26.0)
         self.Bragg.aom_lattice.sw.off()
-
-
         delay(self.wait_time)  # drop time
-        
         self.Bragg.aom_dipole.set_att(self.Bragg.atten_Dipole)
-
-        delay(t_delay)
-        
-        
-        
+        delay(t_delay)   
         self.MOTs.take_MOT_image(self.Camera) # image after variable drop time
         self.Bragg.aom_dipole.set_att(self.Bragg.atten_Dipole)
+        self.Bragg.aom_lattice.sw.on()
+        delay(10*ms)
         
 
-        delay(10*ms)
-        self.MOTs.AOMs_on_all()
-        delay(1*ms)
-        self.Bragg.aom_lattice.sw.on()
-        self.Bragg.aom_dipole.set_att(self.Bragg.atten_Dipole)
+        ## PROCESS IMIAGE
+        self.core.wait_until_mu(now_mu())     
+        ports=self.Camera.process_image(bg_sub=True, return_ports=["narrow", "wide"])
+        self.core.break_realtime()
 
-        delay(50*ms)
-        self.Camera.process_image(bg_sub=True)
-        delay(400*ms)
-        return 0
+
+
+        self.MOTs.AOMs_on_all()
+        delay(10*ms)
+
+        return int(1e6*ports[0]/ports[1])
     
     def after_fit(self, fit_name, valid, saved, model):
         self.set_dataset('current_scan.plots.error', model.errors, broadcast=True, persist=True)
