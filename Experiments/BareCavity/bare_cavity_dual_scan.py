@@ -22,6 +22,8 @@ class bare_cavity_dual_scan_exp(Scan1D, EnvExperiment):
         super().build(**kwargs)
         self.Bragg = _Bragg(self)
         self.enable_auto_tracking = False
+        self.setattr_device("ttl5") # triggering pulse
+
         
         # Arguments 
         self.setattr_argument('pulse_spacing', Scannable(default=RangeScan(
@@ -77,12 +79,10 @@ class bare_cavity_dual_scan_exp(Scan1D, EnvExperiment):
     @kernel 
     def before_scan(self):
         self.core.reset()
-        self.MOTs.ttl5.off()
+        self.ttl5.off()
 
-        self.Bragg.init_aoms(on=True)
-        self.Bragg.aom_sideband.sw.off()
-        self.Bragg.aom_carrier.sw.off()
-        delay(15*ms)
+        self.Bragg.init_aoms()
+        delay(1*ms)
 
         
         
@@ -96,7 +96,7 @@ class bare_cavity_dual_scan_exp(Scan1D, EnvExperiment):
 
 
         # probe cavity once with sideband AOM
-        self.MOTs.ttl5.on()    
+        self.ttl5.on()    
         self.Bragg.self.aom_sideband.sw.on()
         delay(self.probe_time)
         self.Bragg.aom_sideband.sw.off()
@@ -107,7 +107,7 @@ class bare_cavity_dual_scan_exp(Scan1D, EnvExperiment):
         self.Bragg.aom_sideband.sw.on()
         delay(self.probe_time)
         self.Bragg.aom_sideband.sw.off()    
-        self.MOTs.ttl5.off()
+        self.ttl5.off()
    
         return 0
      

@@ -6,33 +6,22 @@ Created on Mon Nov  4 11:01:45 2024
 """
 
 
-from artiq.experiment import Scannable, RangeScan, NumberValue # pyright: ignore[reportMissingImports]
-from artiq.experiment import kernel, EnvExperiment, kHz, delay, ms, parallel, us, MHz, now_mu, ns # pyright: ignore[reportMissingImports]
+from artiq.experiment import Scannable, RangeScan, NumberValue, TArray,TInt32 # pyright: ignore[reportMissingImports]
+from artiq.experiment import kernel, EnvExperiment, rpc, delay, ms, parallel, us, MHz, now_mu, ns # pyright: ignore[reportMissingImports]
 from artiq.coredevice import ad9910 # pyright: ignore[reportMissingImports]
 from scan_framework import Scan1D
 import numpy as np
 
-
-from CoolingClass import _Cooling
-from CameraClass import _Camera
 from BraggClass import _Bragg
-from repository.models.scan_models import RabiModel # pyright: ignore[reportMissingImports]
-
 
 class bare_cavity_scan_exp(Scan1D, EnvExperiment):
     
     def build(self, **kwargs):
-        
+
         super().build(**kwargs)
-        self.setattr_device("ttl5") # triggering pulse
-
-        # import classes for experiment control
-
         self.Bragg = _Bragg(self)
-
-        
-                # attributes here
         self.enable_auto_tracking = False
+        self.setattr_device("ttl5") # triggering pulse
         
         self.scan_dds = self.Bragg.urukul_channels[2]
         
@@ -100,177 +89,94 @@ class bare_cavity_scan_exp(Scan1D, EnvExperiment):
     def get_scan_points(self):
         # return the set of scan points to the framework
         return self.pulse_spacing
-        
-        
+     
         
     def prepare(self):
         self.Bragg.prepare_aoms()       
-        self.enable_histograms = True
-        
-        
-    @kernel
-    def load_scan(self):
-        self.step_size = int(self.scan_time/(1024*4*ns))
-        f0 = self.freq_center + self.freq_width/2
-        if self.freq_width/2 > self.freq_center: raise Exception("Bad Range")
-        
-        #continuous       
-        f_step = self.freq_width / 1023        
-        for i in range(1024):
-            self.freq_list[i] = f0 - f_step*i
-            
-        ## discrete:
-        # f_step = self.freq_width / 15
-        # for i in range(1024):
-        #     self.freq_list[i] = f0 - int(i/16) * f_step
-            
-            
-        self.scan_dds.frequency_to_ram(self.freq_list, self.freq_list_ram)
-
-        self.core.break_realtime()
-        delay(10 * ms)
-
-        self.scan_dds.set(self.freq_center - self.freq_width/2, amplitude=self.Bragg.scale_Carrier)
-
-        delay(1 * ms)
-
-
-
-        self.scan_dds.set_cfr1(ram_enable=0)
-        self.scan_dds.cpld.io_update.pulse_mu(8)
-
-        self.scan_dds.set_profile_ram(start=0, end=1024-1, step=(self.step_size | (2**6 - 1 ) << 16),
-                                  profile=0, mode=ad9910.RAM_MODE_RAMPUP)
-        self.scan_dds.cpld.set_profile(0)
-
-        delay(100*us) # needs 2x delays here not to throw RTIOUnderflow Error?????
-        delay(100*us)
-
-        self.scan_dds.cpld.io_update.pulse_mu(8)
-        delay(100*us)
-        self.scan_dds.write_ram(self.freq_list_ram)
-        # prepare to enable ram and set frequency as target
-        delay(10 * us)
-        self.scan_dds.set_cfr1(internal_profile=0, ram_enable=1, ram_destination=ad9910.RAM_DEST_FTW)
-        delay(10*ms)
-
-        self.core.wait_until_mu(now_mu())
-
-
+    
 
     @kernel 
     def before_scan(self):
         self.core.reset()
         self.ttl5.off()
-
-
-        self.Bragg.init_aoms(switches=0x9)
-        self.Bragg.aom_sideband.sw.off()
-        self.Bragg.aom_carrier.sw.off()
-        
-
+        self.Bragg.init_aoms()
         delay(1*ms)
-        
-        
-        self.Bragg.aom_sideband.set_att(self.Bragg.atten_Sideband)  
-        self.Bragg.aom_carrier.set_att(self.Bragg.atten_Carrier)  
-        delay(100*ms)
 
-        
-        self.core.wait_until_mu(now_mu())
+    @kernel
+    def before_measure(self, point, measurement):
+        delay(1*ms)
+        self.load_mod(self.scan_dds)
+
      
         
     @kernel
     def measure(self, point):
-        self.core.reset()
-        delay(1 * ms)
-        self.load_scan()
-        # delay(10*ms)
-   
-        # before this point is just for preparing the RAM and RIGOL
         self.core.break_realtime()
-        delay(10*ms)
-        self.Bragg.aom_sideband.set_att(self.Bragg.atten_Sideband)  
-        self.Bragg.aom_carrier.set_att(self.Bragg.atten_Carrier)      
         delay(10 * ms)
-
-
-
-
-        self.run_exp(point)
+   
+        self.Bragg.aom_sideband.sw.on()
+        self.scan_dds.sw.on()
+        delay(1*ms)  
+        for _ in range(int(self.pulses)):    
+            self.ttl5.on()
+            self.scan_dds.cpld.io_update.pulse_mu(8)             
+            delay(self.scan_time)               
+            self.ttl5.off()      
+            delay(point)
+            
+        delay(1*ms)
         
 
         self.scan_dds.set(self.freq_center, amplitude=self.Bragg.scale_Carrier)
         self.scan_dds.sw.on()
         self.Bragg.aom_sideband.sw.on()
         
-        #resets scan to prepapre for next scan
-        #self.scan_dds.set_cfr1(ram_enable=0)
-        #self.scan_dds.cpld.io_update.pulse_mu(8)
-        
-        
-        
-        # simulate experiment shot rate
         delay(self.pause_time)
         self.core.wait_until_mu(now_mu())
         return 0
      
-    
     @kernel
-    def run_exp(self, pspace):
-        self.Bragg.aom_sideband.sw.on()
-        self.scan_dds.sw.on()
-
+    def load_mod(self, dds):
+        # one host round-trip, table arrives prepacked
+        step = int(self.scan_time/(1024*4*ns))
+        ram_data = self._build_ram_table(dds, self.freq_center, self.freq_weidth)
+        self.core.break_realtime()  # RPC ate ~ms of wall clock
         delay(1*ms)
         
-        for _ in range(int(self.pulses)):
-            
-            
-            
-            with parallel:
-                
-                self.ttl5.on()
-                
-                self.scan_dds.cpld.io_update.pulse_mu(8)
-                
-                
-            delay(self.scan_time)
-            
-            with parallel:
-                
-                self.ttl5.off()      
-
-            delay(pspace)
-            
-        # self.freeze_RAM(self.scan_dds, 0, 1023, 1*self.scan_time)
-        # self.ttl5.on()
-        # delay(1*self.scan_time)
-        # self.ttl5.off()
-
-        delay(1*ms)
-       
-        
-        
-    
-    @kernel
-    def freeze_RAM(self, dds, start_idx, end_idx, scan_time):
-        """
-        Modify the trigger DDS RAM so that profile 0 consists of a single
-        index (idx), effectively "freezing" the DDS at the frequency
-        corresponding to the detection time.
-
-        This is called after pulse 1, before pulse 2.
-        """
-        step_size = int(scan_time/(1024*4*ns))
-
-
-        dds.set_profile_ram(
-            start=start_idx,
-            end=end_idx,
-            step=(step_size | (2**6 - 1) << 16),
-            profile=0,
-            mode=ad9910.RAM_MODE_RAMPUP
-        )
+        # turn off RAM mode
+        dds.set_cfr1(ram_enable=0)
         dds.cpld.io_update.pulse_mu(8)
+        delay(100*us)
+
+        # set profile registers
+        dds.set_profile_ram(start=0, end=1023, step=step,
+                            profile=0, mode=ad9910.RAM_MODE_CONT_RAMPUP)
+        delay(100*us)
+
+        # write sweep
+        dds.cpld.set_profile(0)
+        dds.cpld.io_update.pulse_mu(8)
+        delay(100*us)
+        dds.write_ram(ram_data)
+        delay(100*us)
         
+        # ram enable
+        dds.set_cfr1(internal_profile=0, ram_enable=1,
+                     ram_destination=ad9910.RAM_DEST_ASF)
+        delay(1000*us)
+        self.core.wait_until_mu(now_mu())
+
+    @rpc
+    def _build_ram_table(self, dds, fc, fw) -> TArray(TInt32):  # pyright: ignore[reportInvalidTypeForm]
+        f0 = fc + fw/2     
+        f_step = fw / 1023     
+        table =  f0 - np.arange(1024)*f_step  
+        ram = np.zeros(1024, dtype=np.int32)
+        dds.frequency_to_ram(table, ram)
+        return ram
+            
+        
+        
+    
+   
     
