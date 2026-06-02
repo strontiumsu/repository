@@ -256,16 +256,18 @@ class LifetimeModel(TimeModel):
     namespace="LifetimeExp"
     y_label='Counts'
     x_label='hold time'
-    x_units = 's'
-    plot_title = 'Lifetime Scan'
+    x_units = 'ms'
+    x_scale = 1e-3
+    plot_title = 'Dipole Trap Lifetime'
     enable_histograms = False
     fit_function = Exp
     man_bounds = {'A': [0, 100_000_000],
-                   'b': [-20, 0],
-                   'y0':[0, 1000000]
+                   'b': [-50, -0.1],
+                   'y0':[-10_000, 1000000]
                    }
-    guess = {'b': -3}
-    
+    guess = {'b': -0.5, 'A': 150000, 'y0': 0}
+    fits_to_save = {'A': 'amplitude', 'y0': 'offset'}
+
     main_fit = "tau"
     def before_validate(self, fit):
         fit.fitresults["tau"] = -1/fit.fitresults['b']

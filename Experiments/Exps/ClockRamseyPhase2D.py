@@ -40,9 +40,7 @@ class ClockRamseyPhase2D_exp(Scan2D, EnvExperiment):
         self.Bragg = _Bragg(self)
         
         
-        self.enable_pausing = True # disable to speed up by not checking scheduler
-        self.enable_auto_tracking=False
-        self.enable_profiling = False # enable to print runtime statistics to find bottlenecks
+        self.enable_auto_tracking = False
         
         self.ind = 0
         self.ramsey_phase_exp = 0.0*1e-6
@@ -135,7 +133,7 @@ class ClockRamseyPhase2D_exp(Scan2D, EnvExperiment):
         
         self.MOTs.prepare_coils()
         
-        self.Camera.camera_init(scheme = 0)
+        self.Camera.camera_init()
         
         
         self.enable_histograms = True

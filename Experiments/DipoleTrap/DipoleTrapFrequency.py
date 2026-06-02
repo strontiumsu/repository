@@ -26,9 +26,7 @@ class DipoleTrapFrequency_exp(Scan1D, TimeScan, EnvExperiment):
 
         super().build(**kwargs)
 
-        self.enable_pausing = True
         self.enable_auto_tracking = False
-        self.enable_profiling = False
 
         # import classes for experiment control
         self.MOTs = _Cooling(self)

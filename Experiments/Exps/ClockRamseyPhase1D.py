@@ -39,9 +39,7 @@ class ClockRamseyPhase_exp(Scan1D, EnvExperiment):
         self.State_Control = _state_control(self)
         self.Bragg = _Bragg(self)
         
-        self.enable_pausing = True # disable to speed up by not checking scheduler
-        self.enable_auto_tracking=False
-        self.enable_profiling = False # enable to print runtime statistics to find bottlenecks
+        self.enable_auto_tracking = False
 
         self.setattr_argument('pulse_phase',
             Scannable(default=RangeScan(

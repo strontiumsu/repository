@@ -32,9 +32,7 @@ class bare_cavity_scan_exp(Scan1D, EnvExperiment):
 
         
                 # attributes here
-        self.enable_pausing = True # disable to speed up by not checking scheduler
-        self.enable_auto_tracking=False
-        self.enable_profiling = False # enable to print runtime statistics to find bottlenecks
+        self.enable_auto_tracking = False
         
         self.scan_dds = self.Bragg.urukul_channels[2]
         

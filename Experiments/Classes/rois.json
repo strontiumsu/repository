@@ -31,6 +31,12 @@
     "ports": {
       "counts": {"x": 238, "y": 62, "w": 39, "h": 74, "color": 200}
     }
+  }, 
+  "bmot_total_counts": {
+    "description": "Blue MOT counts. Single bMOT cloud, total counts in one ROI.",
+    "ports": {
+      "counts": {"x": 18, "y": 168, "w": 220, "h": 95, "color": 200}
+    }
   }
 }
 

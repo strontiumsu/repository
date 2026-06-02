@@ -38,9 +38,7 @@ class ClockExcitation2_exp(Scan1D, TimeFreqScan, EnvExperiment):
         self.State_Control = _state_control(self)
         self.Bragg = _Bragg(self)
         
-        self.enable_pausing = True # disable to speed up by not checking scheduler
-        self.enable_auto_tracking=False
-        self.enable_profiling = False # enable to print runtime statistics to find bottlenecks
+        self.enable_auto_tracking = False
 
         self.scan_arguments(times = {'start':0*us,'stop':1.5*us,'npoints':20,'unit':"us",'scale':us,'global_step':0.1*us,'ndecimals':4},
              frequencies={'start':-3*MHz,'stop':3*MHz,'npoints':50,'unit':"MHz",'scale':MHz,'global_step':0.1*MHz,'ndecimals':4},
@@ -71,7 +69,7 @@ class ClockExcitation2_exp(Scan1D, TimeFreqScan, EnvExperiment):
         
         self.MOTs.prepare_coils()
         
-        self.Camera.camera_init(scheme = 1)
+        self.Camera.camera_init()
         
         
         self.enable_histograms = True

@@ -63,9 +63,7 @@ class _Cooling(EnvExperiment):
         self.setattr_device("zotino0")
         self.dac_0=self.get_device("zotino0")
         
-        self.enable_pausing = True # disable to speed up by not checking scheduler
-        self.enable_auto_tracking=False
-        self.enable_profiling = False # enable to print runtime statistics to find bottlenecks
+        self.enable_auto_tracking = False
         
 
         ### Blue MOT parameters
@@ -564,6 +562,7 @@ class _Cooling(EnvExperiment):
         self.aom_3D_blue.sw.on()
         self.aom_3P0.sw.on()
         self.aom_3P2.sw.on()
+        self.aom_3D_red.sw.off()
         
         # turn to MOT mode
         self.set_current_dir(0)

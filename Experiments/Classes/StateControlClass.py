@@ -7,8 +7,6 @@ Created on Fri Jan 17 13:44:41 2025
 
 
 from artiq.experiment import EnvExperiment, NumberValue, delay, ms, kernel, TInt32, parallel, ns # pyright: ignore[reportMissingImports]
-import numpy as np
-
 from artiq.coredevice.ad9910 import PHASE_MODE_TRACKING # pyright: ignore[reportMissingImports]
 
 class _state_control(EnvExperiment):
@@ -27,9 +25,7 @@ class _state_control(EnvExperiment):
 
         # default values for all params for all AOMs
         self.scales = [0.8, 0.8, 0.8, 0.8]
-
         self.attens = [8.0, 6.0, 7.0, 8.0]
-
         self.freqs = [80.0, 102.5, 200.0, 220.0]
 
         self.urukul_channels = [self.get_device("urukul0_ch0"),

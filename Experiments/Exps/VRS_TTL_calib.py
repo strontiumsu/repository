@@ -38,8 +38,7 @@ class VRS_TTL_calib_exp(Scan1D, EnvExperiment):
         
         
         
-        self.enable_pausing = True # disable to speed up by not checking scheduler
-        self.enable_auto_tracking=False
+        self.enable_auto_tracking = False
 
         
         #scan parameters

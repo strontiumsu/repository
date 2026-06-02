@@ -5,10 +5,9 @@ Created on Tue Jan 31 10:03:56 2023
 @author: E. Porter
 """
 
-from artiq.experiment import EnvExperiment, BooleanValue, kernel, ms, NumberValue, delay, parallel, sequential, RTIOUnderflow # pyright: ignore[reportMissingImports]
+from artiq.experiment import EnvExperiment, BooleanValue, kernel, ms, NumberValue, delay, now_mu # pyright: ignore[reportMissingImports]
 
 # imports
-import numpy as np
 from CoolingClass import _Cooling
 from CameraClass import _Camera
 
@@ -19,7 +18,6 @@ class Blue_MOT_pulse_exp(EnvExperiment):
         self.setattr_device("core")
         self.MOTs = _Cooling(self)
         self.Camera = _Camera(self)
-
 
         # attributes for this experiment
         self.setattr_argument("pulses", NumberValue(5,min=0, max=100), "parameters")
@@ -32,43 +30,26 @@ class Blue_MOT_pulse_exp(EnvExperiment):
         self.MOTs.prepare_aoms()
         self.MOTs.prepare_coils()
 
-        if self.image: self.Camera.camera_init()
+        if self.image: self.Camera.camera_init(N=int(self.pulses) + 10)
 
     @kernel
     def run(self):
-        # initial devices
         self.core.reset()
+
         self.MOTs.init_coils()
         self.MOTs.init_ttls()
         self.MOTs.init_aoms(on=False)
-        delay(5*ms)
+        delay(10*ms)
+
         if self.image: self.MOTs.take_background_image_exp(self.Camera)
 
+        self.MOTs.AOMs_off_all()
+        self.MOTs.atom_source_off()
 
-
-        # pulse using the given parameters
         for _ in range(int(self.pulses)):
-
-            if self.image:self.Camera.arm()
-
-            delay(200*ms)
             self.MOTs.bMOT_load()
-            # self.MOTs.aom_3P2.sw.off()
-            # delay(50*ms)
-            # self.MOTs.aom_3P0.sw.off()
-            # self.MOTs.aom_3D_blue.sw.off()
             
-            # tramp = 10*ms
-            # dt = tramp/int(self.MOTs.Npoints)
-            # for step in range(1, int(self.MOTs.Npoints)):
-            #     self.MOTs.dac_set(0,  self.MOTs.bmot_current + 1.5/tramp*step*dt)
-            #     delay(dt)
-            # self.MOTs.aom_3P0.sw.on()
-            # self.MOTs.aom_3P2.sw.on()
-            # delay(2*ms)
-            # self.MOTs.aom_3P0.sw.off()
-            # self.MOTs.aom_3P2.sw.off()
-            
+        
             if self.image: self.MOTs.take_MOT_image(self.Camera)
             delay(10*ms)
 
@@ -77,6 +58,9 @@ class Blue_MOT_pulse_exp(EnvExperiment):
             self.MOTs.AOMs_off_all()
             delay(50*ms)
 
-            if self.image: self.Camera.process_image(bg_sub=True)
+            if self.image: 
+                self.core.wait_until_mu(now_mu())
+                self.Camera.process_image(bg_sub=True)
+                self.core.break_realtime()
 
             delay(self.wait_time)
