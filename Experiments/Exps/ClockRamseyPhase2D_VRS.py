@@ -319,7 +319,7 @@ class ClockRamseyPhase2D_VRSexp(Scan2D, EnvExperiment):
         elif self.excited_state=='3P0':
             if self.cavity_clear:
                 # prepare in 3P0
-                self.ttl5.on()       # for triggering start
+                #self.ttl5.on()       # for triggering start
                 self.State_Control.pulse_689(self.pi_time689)
                 delay(0.05*us)
                 with parallel:
@@ -330,6 +330,8 @@ class ClockRamseyPhase2D_VRSexp(Scan2D, EnvExperiment):
                 self.State_Control.push_pulse(20*us)
                 delay(2*us)
                 
+                #self.MOTs.take_MOT_image(self.Camera)  
+
                 # Rabi flop from 3P0
                 with parallel:
                     self.State_Control.pulse_679(self.pi_2_timeRaman)
@@ -339,9 +341,10 @@ class ClockRamseyPhase2D_VRSexp(Scan2D, EnvExperiment):
                 
                 delay(self.delay_exp/2)
 
+
                 #### MEASURE VRS ############
                 self.ttl5.on()       # for triggering start
-                self.scan_probe(self.scan_time)
+                self.scan_probe(self.scan_time/2)
                 self.ttl5.off() 
     
                 if self.Echo:
@@ -358,7 +361,11 @@ class ClockRamseyPhase2D_VRSexp(Scan2D, EnvExperiment):
                     delay(0.25*us)
                     self.State_Control.pulse_689(self.pi_time689)
                     
-                    
+                #### MEASURE VRS ############
+                self.ttl5.on()       # for triggering start
+                self.scan_probe(self.scan_time/2)
+                self.ttl5.off() 
+
                 with parallel:
                     delay(self.delay_exp/2+1.2*us)
                     self.State_Control.switch_profile(1)
@@ -381,6 +388,7 @@ class ClockRamseyPhase2D_VRSexp(Scan2D, EnvExperiment):
                 #     self.State_Control.pulse_688(self.pi_timeRaman)
                 # delay(0.3*us)
                 # self.State_Control.pulse_689(self.pi_2_time689)
+                #delay(1*s)
                 
                 
                 
