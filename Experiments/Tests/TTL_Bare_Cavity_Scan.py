@@ -81,7 +81,7 @@ class TTL_Bare_Cavity_Scan(EnvExperiment):
     def run(self):                              
         self.core.reset()                       #resets core device
         delay(10*ms)
-        self.Bragg.init_aoms(on=True)
+        self.Bragg.init_aoms(switches=0xF)
         delay(10*ms)
         self.scan_dds.sw.off()
         delay(10*ms)

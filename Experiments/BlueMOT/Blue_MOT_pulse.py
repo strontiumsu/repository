@@ -40,7 +40,7 @@ class Blue_MOT_pulse_exp(EnvExperiment):
         self.core.reset()
         self.MOTs.init_coils()
         self.MOTs.init_ttls()
-        self.MOTs.init_aoms(on=False)
+        self.MOTs.init_aoms()
         delay(5*ms)
         if self.image: self.MOTs.take_background_image_exp(self.Camera)
 

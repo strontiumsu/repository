@@ -30,7 +30,7 @@ class Blue_MOT_DC_exp(EnvExperiment):
         self.core.reset()
         self.MOTs.init_coils()
         self.MOTs.init_ttls()
-        self.MOTs.init_aoms(on=False)
+        self.MOTs.init_aoms()
         delay(100*ms)
 
         # load Blue MOT and leave on

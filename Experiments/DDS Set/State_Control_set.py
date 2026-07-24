@@ -29,7 +29,7 @@ class State_Control_set(EnvExperiment):
     @kernel
     def run(self):
         self.core.reset()
-        self.StateControl.init_aoms(on=False)
+        self.StateControl.init_aoms()
         
         if self.ch_688:     self.StateControl.aom_688.sw.on()
         if self.ch_push:    self.StateControl.aom_push.sw.on()

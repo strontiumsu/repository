@@ -58,7 +58,7 @@ class Red_MOT_pulse_exp(EnvExperiment):
         delay(10*ms)
         self.MOTs.init_coils()
         self.MOTs.init_ttls()
-        self.MOTs.init_aoms(on=False)
+        self.MOTs.init_aoms()
         delay(10*ms)
         
 

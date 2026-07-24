@@ -147,7 +147,7 @@ class field_testing_exp(EnvExperiment):
         self.core.reset()
         self.MOTs.init_coils()
         self.MOTs.init_ttls()
-        self.MOTs.init_aoms(on=False)
+        self.MOTs.init_aoms()
         delay(5*ms)
         # self.MOTs.atom_source_on()
         

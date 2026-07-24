@@ -89,7 +89,7 @@ class Red_MOT_pulse_2Dscan_exp(Scan2D, EnvExperiment):
         self.core.reset()
         delay(10*ms)
         self.MOTs.init_coils()
-        self.MOTs.init_aoms(on=False)
+        self.MOTs.init_aoms()
         self.MOTs.init_ttls()
         delay(100*ms)
 

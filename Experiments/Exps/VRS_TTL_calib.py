@@ -123,8 +123,8 @@ class VRS_TTL_calib_exp(Scan1D, EnvExperiment):
         self.MOTs.init_coils()
         self.MOTs.init_ttls()
         
-        self.MOTs.init_aoms(on=False)
-        self.State_Control.init_aoms(on=False)
+        self.MOTs.init_aoms()
+        self.State_Control.init_aoms()
         self.Bragg.init_aoms(switches=0x9)
         
         delay(10*ms)

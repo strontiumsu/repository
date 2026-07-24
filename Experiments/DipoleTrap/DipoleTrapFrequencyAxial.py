@@ -113,7 +113,7 @@ class DipoleTrapFrequencyAxial_exp(Scan1D, FreqScan, EnvExperiment):
     def before_scan(self):
         self.core.reset()
         self.MOTs.init_coils()
-        self.MOTs.init_aoms(on=False)
+        self.MOTs.init_aoms()
         self.Bragg.init_aoms(switches=0x9)
         delay(10*ms)
 

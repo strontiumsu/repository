@@ -86,8 +86,8 @@ class ClockExcitation_exp(Scan1D, TimeFreqScan, EnvExperiment):
         self.MOTs.init_ttls()
         
         #init AOMs
-        self.MOTs.init_aoms(on=False)  
-        self.State_Control.init_aoms(on=False)
+        self.MOTs.init_aoms()  
+        self.State_Control.init_aoms()
         self.Bragg.init_aoms()
         
         delay(10*ms)
