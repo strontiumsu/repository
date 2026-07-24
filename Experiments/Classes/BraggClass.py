@@ -25,6 +25,12 @@ class _Bragg(_DDSGroup):
 
     ALIASES = {"aom_dipole": 0, "aom_sideband": 1, "aom_carrier": 2, "aom_lattice": 3}
 
+    ATTEN_DAC_CH = 6      # zotino0 channel wired to the variable attenuator
+
+    def build_extra(self):
+        self.setattr_device("zotino0")
+        self.dac_0 = self.get_device("zotino0")
+
     @kernel
     def init_aoms(self, switches=0x9):
         # default 0x9 -> Dipole (bit0) and Lattice (bit3) on
@@ -32,31 +38,25 @@ class _Bragg(_DDSGroup):
         self._init_channels(switches)
         delay(1 * ms)
 
+    @kernel
+    def dac_set(self, ch, val):
+        self.dac_0.set_dac([val], [ch])
 
     ## TODO: add rampup methods for dipole/lattice, and rampdown for sideband/carrier
     @kernel
-    def lattice_rampdown(self, end, time):
-        dt = time / 31
-        for step in range(int(31)):
-            atten = self.atten_Lattice + ((end - self.atten_Lattice) / time) * step * dt
-            self.aom_lattice.set_att(atten)
+    def dipole_ramp(self, start, stop, time, pts=31):
+        dt = time / pts
+        for step in range(int(pts)):
+            volt = start + ((stop - start) / time) * step * dt
+            self.dac_set(6, volt)
             delay(dt)
 
     @kernel
-    def dipole_rampdown(self, end, time):
-        dt = time / 31
-        for step in range(int(31)):
-            atten = self.atten_Dipole + ((end - self.atten_Dipole) / time) * step * dt
-            self.aom_dipole.set_att(atten)
+    def lattice_ramp(self, start, stop, time, pts=31):
+        dt = time / pts
+        for step in range(int(pts)):
+            volt = start + ((stop - start) / time) * step * dt
+            self.dac_set(5, volt)
             delay(dt)
 
-    @kernel
-    def dipole_lattice_rampdown(self, end, time):
-        dt = time / 101
-        for step in range(int(31)):
-            atten = self.atten_Dipole + ((end - self.atten_Dipole) / time) * step * dt
-            self.aom_dipole.set_att(atten)
-            delay(dt / 2)
-            atten = self.atten_Lattice + ((end - self.atten_Lattice) / time) * step * dt
-            self.aom_lattice.set_att(atten)
-            delay(dt / 2)
+
