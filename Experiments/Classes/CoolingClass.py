@@ -11,14 +11,13 @@ onto itself via aliases).  _Cooling itself holds only the MOT-specific machinery
 (coils, TTLs, RAM frequency scanning and pulse sequences).
 """
 
-from artiq.experiment import *
-
-from artiq.coredevice import ad9910
+from artiq.experiment import ms, us, MHz, ns, NumberValue, parallel, sequential # pyright: ignore[reportMissingImports]
+from artiq.experiment import kernel, EnvExperiment, BooleanValue, delay, at_mu, now_mu # pyright: ignore[reportMissingImports]
+from artiq.coredevice import ad9910 # pyright: ignore[reportMissingImports]
 
 import numpy as np
 
 from CoolingDDSClass import _CoolingDDS
-
 
 class _Cooling(EnvExperiment):
 
@@ -46,6 +45,8 @@ class _Cooling(EnvExperiment):
         ## MOT Coils
         self.setattr_device("zotino0")
         self.dac_0 = self.get_device("zotino0")
+
+        self.enable_auto_tracking = False
 
         ### Blue MOT parameters
         self.setattr_argument(
@@ -141,7 +142,7 @@ class _Cooling(EnvExperiment):
 
         delay(1*ms)
         self.ttl1.count(t_end)  # clears cache
-        delay(50*ms)
+        delay(15*ms)  # lowered from 50ms -> 15ms
 
     ######################################################
     ############### DAC as TTL FUNCTIONS
@@ -522,13 +523,13 @@ class _Cooling(EnvExperiment):
         self.aom_3D_blue.set_att(self.atten_3D)
         self.aom_3D_red.set_att(self.atten_3D_red)
         self.aom_3D_red.set_amplitude(0.8)
-
         self.urukul1_cpld.set_profile(0)
 
         # turn on 3D, and repumps
         self.aom_3D_blue.sw.on()
         self.aom_3P0.sw.on()
         self.aom_3P2.sw.on()
+        self.aom_3D_red.sw.off()
 
         # turn to MOT mode
         self.set_current_dir(0)
@@ -539,10 +540,9 @@ class _Cooling(EnvExperiment):
 
        # line trigger for consistent time relative to mains
         self.line_trigger()
-        delay(150*ms)
 
         # turn on broad band red mot (profile 0)
-        self.aom_3D_red.cpld.io_update.pulse_mu(8)
+        # self.aom_3D_red.cpld.io_update.pulse_mu(8) # removed
         delay(5*us)
         self.aom_3D_red.sw.on()
 
@@ -685,40 +685,43 @@ class _Cooling(EnvExperiment):
 
     @kernel
     def take_background_image_exp(self, cam):
-        cam.arm()
-        self.core.break_realtime()
-
-        delay(150*ms)
         self.take_MOT_image(cam)
-        delay(10*ms)
 
-        self.core.wait_until_mu(now_mu())
-        cam.process_background()
-        self.core.break_realtime()
-
-    @kernel
-    def take_image_exp(self, cam):
-        cam.trigger_camera()
-        delay(cam.Exposure_Time)
+        delay(100*ms) # give imaging some time
+        self.core.wait_until_mu(now_mu()) # wait to ensure image has been taken before processing background
+        cam.process_background()            
+        self.core.break_realtime() # break realtime after rpc
+        delay(10*ms) 
 
     @kernel
     def take_MOT_image(self, cam):
-        #self.atom_source_off()
+        """
+        Takes an image of the MOT using the 3D blue beams for imaging. 
+        Repumpers are turned on to ensure all atoms are in the ground 
+        state. Camera is triggered in parallel with the imaging pulse.
+        """
+
+        # prepare imaging AOMs
         self.AOMs_off_all()
         self.aom_3D_blue.set(frequency=self.f_MOT3D_detect, amplitude=0.8)
         self.aom_3D_blue.set_att(6.0)
 
+        # turn on repumpers
+        self.aom_3P0.sw.on()
+        self.aom_3P2.sw.on()
+        # trigger camera and pulse imaging light in parallel
         with parallel:
             cam.trigger_camera()
-            with sequential:
-                self.aom_3D_blue.sw.on()
-                self.aom_3P0.sw.on()
-                self.aom_3P2.sw.on()
+            with sequential:   
+                self.aom_3D_blue.sw.on()           
                 delay(self.Detection_pulse_time)
                 self.aom_3D_blue.sw.off()
             delay(cam.Exposure_Time)
 
-        self.aom_3D_blue.set(frequency=self.freq_3D, amplitude=0.8)
-        self.aom_3D_blue.set_att(self.atten_3D)
+        # turn off repumpers
         self.aom_3P0.sw.off()
         self.aom_3P2.sw.off()
+
+        # turn aom back to default settings for MOT loading
+        self.aom_3D_blue.set(frequency=self.freq_3D, amplitude=0.8)
+        self.aom_3D_blue.set_att(self.atten_3D)

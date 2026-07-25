@@ -11,8 +11,6 @@ Class for generating AWG pulses for Bragg experiments
 
 import numpy as np
 from scipy.signal import gaussian
-import matplotlib.pyplot as plt
-import pyvisa
 
 class WaveformGenerator:
     def __init__(self, sample_rate=10e6):

@@ -5,13 +5,10 @@ Created on Tue Jan 31 10:03:56 2023
 @author: E. Porter
 """
 
-from artiq.experiment import EnvExperiment, BooleanValue, kernel, ms, NumberValue, delay, parallel, sequential, RTIOUnderflow
+from artiq.experiment import EnvExperiment, kernel, ms, delay # pyright: ignore[reportMissingImports]
 
 # imports
-import numpy as np
 from CoolingClass import _Cooling
-from CameraClass import _Camera
-
 
 class Blue_MOT_DC_exp(EnvExperiment):
 
@@ -31,7 +28,7 @@ class Blue_MOT_DC_exp(EnvExperiment):
         self.MOTs.init_coils()
         self.MOTs.init_ttls()
         self.MOTs.init_aoms()
-        delay(100*ms)
+        delay(10*ms)
 
         # load Blue MOT and leave on
         self.MOTs.bMOT_load()

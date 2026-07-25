@@ -6,12 +6,12 @@ Created on Tue Jan 21 13:37:31 2025
 """
 
 from scan_framework import Scan2D
-from scan_framework import Scan1D
-from artiq.coredevice import ad9910
 
-from artiq.experiment import *
+from artiq.experiment import Scannable, RangeScan, EnumerationValue, BooleanValue, NumberValue, at_mu, sequential, s # pyright: ignore[reportMissingImports]
+from artiq.experiment import kernel, EnvExperiment, kHz, delay, ms, parallel, us, MHz, now_mu, ns # pyright: ignore[reportMissingImports]
+from artiq.coredevice import ad9910 # pyright: ignore[reportMissingImports]
 import numpy as np
-import pyvisa
+
 
 
 
@@ -21,8 +21,8 @@ from CameraClass import _Camera
 from StateControlClass import _state_control
 from BraggClass import _Bragg
 
-from repository.models.scan_models import RamseyPhaseModel
-from repository.models.scan_models import RamseyDecayModel
+from repository.models.scan_models import RamseyPhaseModel # pyright: ignore[reportMissingImports]
+from repository.models.scan_models import RamseyDecayModel # pyright: ignore[reportMissingImports]
 
 
 class ClockRamseyPhase2D_VRSexp(Scan2D, EnvExperiment):
@@ -41,9 +41,7 @@ class ClockRamseyPhase2D_VRSexp(Scan2D, EnvExperiment):
         self.Bragg = _Bragg(self)
         
         
-        self.enable_pausing = True # disable to speed up by not checking scheduler
-        self.enable_auto_tracking=False
-        self.enable_profiling = False # enable to print runtime statistics to find bottlenecks
+        self.enable_auto_tracking = False
         
         self.ind = 0
         self.ramsey_phase_exp = 0.0*1e-6
@@ -155,7 +153,7 @@ class ClockRamseyPhase2D_VRSexp(Scan2D, EnvExperiment):
         
         self.MOTs.prepare_coils()
         
-        self.Camera.camera_init(scheme = 0)
+        self.Camera.camera_init()
         
         
         self.enable_histograms = True

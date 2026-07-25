@@ -6,9 +6,10 @@ Created on Tue Jan 21 13:37:31 2025
 """
 
 from scan_framework import Scan1D, TimeFreqScan
-from artiq.experiment import *
-import numpy as np
-import pyvisa
+
+from artiq.experiment import Scannable, RangeScan, EnumerationValue, BooleanValue, NumberValue # pyright: ignore[reportMissingImports]
+from artiq.experiment import kernel, EnvExperiment, kHz, delay, ms, parallel, us, MHz, now_mu, ns # pyright: ignore[reportMissingImports]
+
 
 
 
@@ -16,7 +17,7 @@ from CoolingClass import _Cooling
 from CameraClass import _Camera
 
 from BraggClass import _Bragg
-from repository.models.scan_models import AI_Rabi_Model as myModel
+from repository.models.scan_models import AI_Rabi_Model as myModel # pyright: ignore[reportMissingImports]
 
 
 class rMOT_molasses_calib_exp(Scan1D, TimeFreqScan, EnvExperiment):
@@ -33,9 +34,7 @@ class rMOT_molasses_calib_exp(Scan1D, TimeFreqScan, EnvExperiment):
         self.Camera = _Camera(self)
         self.Bragg = _Bragg(self)
         
-        self.enable_pausing = True # disable to speed up by not checking scheduler
-        self.enable_auto_tracking=False
-        self.enable_profiling = False # enable to print runtime statistics to find bottlenecks
+        self.enable_auto_tracking = False
 
         self.scan_arguments(times = {'start':10*ms,'stop':100*ms,'npoints':20,'unit':"ms",'scale':ms,'global_step':0.1*ms,'ndecimals':4},
              frequencies={'start':-3*MHz,'stop':3*MHz,'npoints':10,'unit':"MHz",'scale':MHz,'global_step':0.1*MHz,'ndecimals':4},

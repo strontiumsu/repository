@@ -6,27 +6,25 @@ Created on Wed Aug  2 10:59:20 2023
 """
 
 from scan_framework import Scan1D, TimeScan
-from artiq.experiment import *
-import numpy as np
+from artiq.experiment import  EnumerationValue, NumberValue  # pyright: ignore[reportMissingImports]
+from artiq.experiment import kernel, EnvExperiment, delay, ms, parallel, us, now_mu # pyright: ignore[reportMissingImports]
 
+import numpy as np
+from scipy.optimize import curve_fit
+from scipy import constants
 
 from CoolingClass import _Cooling
 from CameraClass import _Camera
 from BraggClass import _Bragg
-from repository.models.scan_models import DipoleTemperatureModel
-from scipy.optimize import curve_fit
-from scipy import constants
+
+from repository.models.scan_models import DipoleTemperatureModel # pyright: ignore[reportMissingImports]
+
 
 class DipoleTrapTemperature_exp(Scan1D, TimeScan, EnvExperiment):
 
     def build(self, **kwargs):
-        # required initializations
-
         super().build(**kwargs)
-        self.setattr_device("ttl5")
-        self.enable_pausing = True
         self.enable_auto_tracking = False
-        self.enable_profiling = False
 
         # import classes for experiment control
         self.MOTs = _Cooling(self)
@@ -58,14 +56,36 @@ class DipoleTrapTemperature_exp(Scan1D, TimeScan, EnvExperiment):
         #prepare/initialize mot hardware and camera
         self.MOTs.prepare_aoms()
         self.MOTs.prepare_coils()
-        self.Camera.camera_init()
         self.Bragg.prepare_aoms()
-        # register model with scan framework
-        self.enable_histograms = True
+
+        scan_points = np.array(list(self.get_scan_points()))
+        N = len(scan_points)
+
+        self.Camera.camera_init(N=N*self.nrepeats*self.npasses + 1)
+
         self.model = DipoleTemperatureModel(self)
         self.register_model(self.model, measurement=True, fit=True)
 
-        self.Camera.prep_temp_datasets(len(list(self.get_scan_points())))
+        self.Camera.prep_temp_datasets(N)
+
+        # gaussianparams columns: 0=A, 1=cx, 2=cy, 3=σx², 4=σy², 5=offset.
+        # Precompute the column index for the axis we want the framework to live-plot
+        # so the kernel doesn't need to do a string comparison on plot_direction.
+        self._sigma_idx = 3 if self.plot_direction == 'X' else 4
+
+        # Pre-broadcast the TOF dataset schema so the custom applet (tof_sigma_vs_time)
+        # can subscribe once and just see values appear: x-axis is fixed up front,
+        # fit outputs are NaN until after_scan fills them in.
+        self.set_dataset("TOF.drop_times_s", scan_points, broadcast=True, persist=False)
+        self.set_dataset("TOF.fit_t_dense",
+                         np.linspace(0.0, float(scan_points.max()), 200),
+                         broadcast=True, persist=False)
+        for k in ("TOF.pix2um", "TOF.T_x_uK", "TOF.T_y_uK",
+                  "TOF.sigma0_x_um", "TOF.sigma0_y_um"):
+            self.set_dataset(k, float("nan"), broadcast=True, persist=False)
+        nan_pair = np.array([float("nan"), float("nan")])
+        self.set_dataset("TOF.fit_T_x", nan_pair, broadcast=True, persist=False)
+        self.set_dataset("TOF.fit_T_y", nan_pair, broadcast=True, persist=False)
 
 
 
@@ -79,122 +99,100 @@ class DipoleTrapTemperature_exp(Scan1D, TimeScan, EnvExperiment):
         self.MOTs.init_coils()
         self.MOTs.init_aoms()  # initializes whiling keeping them off
         self.Bragg.init_aoms()
-
         delay(10*ms)
 
         self.MOTs.take_background_image_exp(self.Camera)
-        delay(100*ms)
-        self.MOTs.atom_source_on()
-        delay(100*ms)
-        self.MOTs.AOMs_on_all()
-        delay(200*ms)
+
         self.MOTs.AOMs_off_all()
         self.MOTs.atom_source_off()
+
+        delay(10*ms)
+        self.MOTs.init_rmot_dds(self.MOTs.rmot_freq_i,
+                                self.MOTs.rmot_freq_f,
+                                self.MOTs.rmot_freq_depth_i,
+                                self.MOTs.rmot_freq_depth_f,
+                                self.MOTs.freq_3D_red)
 
 
 
 
     @kernel
     def measure(self, point):
-        t_delay = point
-        self.core.wait_until_mu(now_mu())
-        self.core.reset()
-        self.Camera.arm()
-        delay(200*ms)
-        self.ttl5.off()  # NEW TAKE OUT  
-        self.MOTs.AOMs_off_all()
+        self.core.break_realtime()
         delay(10*ms)
 
-        self.MOTs.init_rmot_dds(self.MOTs.rmot_freq_i, self.MOTs.rmot_freq_f, self.MOTs.rmot_freq_depth_i, self.MOTs.rmot_freq_depth_f, self.MOTs.freq_3D_red)
-        delay(10 * ms)
-        
-        
-        # self.Bragg.aom_dipole.set_att(15.0)
-        # self.Bragg.aom_lattice.set_att(30.0)
-        
-        # # generate red mot
-        # self.MOTs.rMOT_pulse_new(dipole_on=False)
-        
-        # self.Bragg.aom_dipole.set_att(self.Bragg.atten_Dipole)     
-        # self.Bragg.aom_lattice.set_att(3.0)
-        
+      
         self.MOTs.rMOT_pulse_new()
-        
-        # load into dipole trap and perform molasses (if selected)
-        # Total time for this sequence needs to be >~ 40 ms for cavity shaking to stop.
-        with parallel:
-            delay(self.load_time/3) 
-            self.MOTs.set_current_dir(1) # let MOT field go to zero and switch H-bridge, 15ms     
-        if self.MOTs.molasses:
-            self.MOTs.molasses_pulse(freq=self.MOTs.molasses_frequency, amp=0.1, t=self.load_time/3)
-        else:
-            delay(self.load_time/3)
-
-        
-        self.MOTs.Blackman_ramp(0.0, self.B_field ,self.load_time/3) # set bias field so 3P1 m=+1 is ~40MHz separated.
- 
+        delay(self.load_time)
         
         self.Bragg.aom_dipole.set_att(30.0) # turn off dipole
         self.Bragg.aom_lattice.sw.off() #turn off lattice
  
-        
-        delay(t_delay)  # drop time
+        delay(point)  # drop time
         self.MOTs.take_MOT_image(self.Camera) # image after variable drop time
 
         self.Bragg.aom_dipole.set_att(self.Bragg.atten_Dipole)        
         self.Bragg.aom_lattice.sw.on()
-        
-
         delay(10*ms)
-        self.MOTs.AOMs_on_all()
-        self.ttl5.off()
-        delay(50*ms)
+        
+        self.core.wait_until_mu(now_mu())
         self.Camera.process_image(bg_sub=True)
-        delay(400*ms)
-        self.MOTs.set_current_dir(0)
-        delay(100*ms)
-        #return self.Camera.get_totalcount_stats_port2()
-        # if self.plot_direction == 'X':
-        #     return self.Camera.process_gaussian(3)
-        # else:
-        #     return self.Camera.process_gaussian(4)
+        sigma_sq_scaled = self.Camera.process_gaussian(self._sigma_idx)
+        self.core.break_realtime()
+
         return 0
-            
+
     def after_scan(self):
-        pass
-        
-        # data = np.array(self.Camera.get_dataset('gaussianparams'))
-        # A, center_y, center_x, sigma_y_2, sigma_x_2, offset = data[:,0], data[:,1], data[:,2], data[:,3],data[:,4], data[:,5]
-        # t=self.get_scan_points()
+        data = np.array(self.get_dataset("gaussianparams"))
+        t = np.array(list(self.get_scan_points()))   # seconds
 
-        
-        # popt, _ = curve_fit(self.quadratic,list(t),center_y,maxfev=20000);
+        cy_pix  = data[:, 1]   # column position = gravity direction
+        sx2_pix = data[:, 4]   # physical X (horizontal) variance, pix²
+        sy2_pix = data[:, 3]   # physical Y (vertical / gravity) variance, pix²
+
+        try:
+            popt_g, _ = curve_fit(self.quadratic, t, cy_pix, maxfev=20000)
+        except Exception as exc:
+            raise RuntimeError(
+                "after_scan: gravity-calibration fit on column centroid "
+                "failed ({0}); cannot derive pix2um".format(exc))
+
+        g_coeff = abs(float(popt_g[0]))
+        pix2um = 9.81 / (2.0 * g_coeff) * 1e6
+        # Convert variances pixel² -> m²
+        pix2m = pix2um * 1e-6
+        sx2_m = sx2_pix * pix2m**2
+        sy2_m = sy2_pix * pix2m**2
+
+        M = constants.value('atomic mass constant') * 87.9056
+        Kb = constants.value('Boltzmann constant')
+
+        def sigma_sq_model(tt, T, s0sq):
+            return s0sq + (Kb * T / M) * tt**2
+
+        def fit_one_axis(tt, ss):
+            popt, _ = curve_fit(sigma_sq_model, tt, ss,
+                                p0=[8e-6, ss[0]],
+                                bounds=([0.0, 0.0], [np.inf, np.inf]),
+                                maxfev=20000)
+            return popt
 
 
-        # ###g/2 = a pixels/ms^2 = 9.8m/s^2 =
-        # pix2um = 9.81e6/(popt[0]*2)
+        popt_x = fit_one_axis(t, sx2_m)
+        popt_y = fit_one_axis(t, sy2_m)
 
-        
-        # sigma_y_2*=pix2um**2
-        # sigma_x_2*=pix2um**2
-        
-        
-     
-        # popt_temp_x, _ = curve_fit(self.quadratic,list(t),sigma_x_2,maxfev=20000);     
-        # popt_temp_y, _ = curve_fit(self.quadratic,list(t),sigma_y_2,maxfev=20000);
-        
-        # print(popt_temp_x)
+        T_x_uK = float(popt_x[0] * 1e6)
+        T_y_uK = float(popt_y[0] * 1e6)
+        sigma0_x_um = float(np.sqrt(max(popt_x[1], 0.0)) * 1e6)
+        sigma0_y_um = float(np.sqrt(max(popt_y[1], 0.0)) * 1e6)
 
+        self.set_dataset("TOF.pix2um",       float(pix2um),      broadcast=True)
+        self.set_dataset("TOF.T_x_uK",       T_x_uK,             broadcast=True)
+        self.set_dataset("TOF.T_y_uK",       T_y_uK,             broadcast=True)
+        self.set_dataset("TOF.sigma0_x_um",  sigma0_x_um,        broadcast=True)
+        self.set_dataset("TOF.sigma0_y_um",  sigma0_y_um,        broadcast=True)
+        self.set_dataset("TOF.fit_T_x",      np.asarray(popt_x), broadcast=True)
+        self.set_dataset("TOF.fit_T_y",      np.asarray(popt_y), broadcast=True)
 
-        # M  = constants.value('atomic mass constant')*87.9
-        # Kb = constants.value('Boltzmann constant')
-        # tempX = popt_temp_x[0]*1e-12*M/Kb * 1e6
-        # tempY = popt_temp_y[0]*1e-12*M/Kb * 1e6
-        
-        # self.set_dataset("TOF.TempX", tempX, broadcast=True)
-        # self.set_dataset("TOF.TempY", tempY, broadcast=True)
-        # self.set_dataset("TOF.pix2um", pix2um, broadcast=True)
-
-        
-    def quadratic(self, x,a,b,c):
-        return a*x**2+b*x+c
+    def quadratic(self, x, a, b, c):
+        return a*x**2 + b*x + c

@@ -27,16 +27,19 @@ thing changing is the lattice's RAM address range.
 """
 
 from scan_framework import Scan1D, FreqScan
-from artiq.experiment import *
+
+from artiq.experiment import TInt32, TArray, TTuple, Scannable, RangeScan, EnumerationValue, BooleanValue, NumberValue, at_mu, sequential, s # pyright: ignore[reportMissingImports]
+from artiq.experiment import rpc, kernel, EnvExperiment, kHz, delay, ms, parallel, us, MHz, now_mu, ns # pyright: ignore[reportMissingImports]
+from artiq.coredevice import ad9910 # pyright: ignore[reportMissingImports]
 import numpy as np
-from artiq.coredevice import ad9910
+
 
 from CoolingClass import _Cooling
 from CameraClass import _Camera
 from BraggClass import _Bragg
 from scipy import constants
 
-from repository.models.scan_models import DipoleFreqModel
+from repository.models.scan_models import DipoleFreqModel # pyright: ignore[reportMissingImports]
 
 # module level constants
 N_CYCLES_IN_RAM = 8
@@ -100,9 +103,8 @@ class DipoleTrapFrequencyAxial_exp(Scan1D, FreqScan, EnvExperiment):
     def prepare(self):
         self.MOTs.prepare_aoms()
         self.MOTs.prepare_coils()
-        self.Camera.camera_init()
+        self.Camera.camera_init(N=len(list(self.get_scan_points()))*self.nrepeats*self.npasses + 10)
         self.Bragg.prepare_aoms()
-        self.Camera.prep_temp_datasets(len(list(self.get_scan_points())))
         
         # register model with scan framework
         self.enable_histograms = True
@@ -118,7 +120,6 @@ class DipoleTrapFrequencyAxial_exp(Scan1D, FreqScan, EnvExperiment):
         delay(10*ms)
 
         self.MOTs.take_background_image_exp(self.Camera)
-        delay(100*ms)
         
         
         self.MOTs.AOMs_off_all()
@@ -148,8 +149,6 @@ class DipoleTrapFrequencyAxial_exp(Scan1D, FreqScan, EnvExperiment):
         # point = oscillation frequency
         self.core.wait_until_mu(now_mu())
         delay(1*ms)
-        self.Camera.arm()
-        self.core.break_realtime()
 
         self.MOTs.AOMs_off_all()
         delay(10*ms)
@@ -191,10 +190,16 @@ class DipoleTrapFrequencyAxial_exp(Scan1D, FreqScan, EnvExperiment):
         delay(10*ms)
         self.MOTs.AOMs_on_all()
         delay(50*ms)
-        self.Camera.process_image(bg_sub=True)
+        ports = self.Camera.process_image(bg_sub=True, return_ports=["narrow", "wide"])
+        narrow_counts, wide_counts = ports[0], ports[1]
+        self.core.break_realtime()
         delay(10*ms)
-        return 0
+        return int(10**6 * narrow_counts/wide_counts)
 
+
+
+    def after_scan(self):
+        self.Camera.disarm()
 
     @kernel
     def load_mod(self, dds, ai, af, freq):
@@ -228,7 +233,6 @@ class DipoleTrapFrequencyAxial_exp(Scan1D, FreqScan, EnvExperiment):
         dds.cpld.set_profile(7)
         dds.cpld.io_update.pulse_mu(8)
         delay(100*us)
-        self.core.break_realtime()
         dds.write_ram(ram_data[1022:])
         delay(100*us)        
         
@@ -241,7 +245,7 @@ class DipoleTrapFrequencyAxial_exp(Scan1D, FreqScan, EnvExperiment):
 
 
     @rpc
-    def _build_ram_table(self, ai, af, freq) -> TTuple([TInt32,TInt32, TArray(TInt32), ]):
+    def _build_ram_table(self, ai, af, freq) -> TTuple([TInt32, TInt32, TArray(TInt32)]):  # pyright: ignore[reportInvalidTypeForm]
         # perform on host
         k_ideal = round(N_CYCLES_IN_RAM/(N_SINE*freq*(4*ns)))
         k = min(5000, max(1, k_ideal))
