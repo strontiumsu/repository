@@ -39,7 +39,7 @@ class Red_MOT_pulse_exp(EnvExperiment):
         self.MOTs.prepare_aoms()
         self.MOTs.prepare_coils()
         # Initialize camera
-        self.Camera.camera_init(N=int(self.pulses) + 10)
+        self.Camera.camera_init(N=int(self.pulses) + 1)
         
      
     @kernel 

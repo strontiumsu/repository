@@ -91,7 +91,9 @@ class ClockExcitation_Cav_exp(Scan1D, EnvExperiment):
         self.Bragg.prepare_aoms()
         self.State_Control.prepare_aoms()
         
-        self.Camera.camera_init()
+        if self.Image:
+            self.Camera.camera_init(N=len(list(self.get_scan_points()))*self.nrepeats*self.npasses + 1)
+
         self.enable_histograms = True
         self.model = myModel(self)
         self.register_model(self.model, measurement=True, fit=True)
@@ -128,10 +130,6 @@ class ClockExcitation_Cav_exp(Scan1D, EnvExperiment):
 
 
         self.core.wait_until_mu(now_mu())
-    
-    def before_measure(self, point, measurement):
-        if self.Image:
-            self.Camera.arm()
     
     @kernel
     def measure(self, point):

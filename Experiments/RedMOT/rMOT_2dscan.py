@@ -81,8 +81,10 @@ class Red_MOT_pulse_2Dscan_exp(Scan2D, EnvExperiment):
         self.Bragg.prepare_aoms()
 
 
-        # Initialize camera
-        self.Camera.camera_init()
+        # Initialize camera. measure() calls run_exp twice, so two images per scan point.
+        scan_points = self.get_scan_points()
+        self.Camera.camera_init(N=2*len(list(scan_points[0]))*len(list(scan_points[1]))
+                                  * self.nrepeats*self.npasses + 1)
          
     @kernel 
     def before_scan(self):
@@ -109,8 +111,7 @@ class Red_MOT_pulse_2Dscan_exp(Scan2D, EnvExperiment):
         self.core.reset()
         delay(10*ms)
         
-        self.Camera.arm()
-        delay(500*ms)  
+        delay(500*ms)
 
         #self.MOTs.init_rmot_dds(self.MOTs.rmot_freq_i, self.MOTs.rmot_freq_f, self.MOTs.rmot_freq_depth_i,self.MOTs.rmot_freq_depth_f, self.MOTs.freq_3D_red)
         self.MOTs.init_rmot_dds(self.MOTs.rmot_freq_i, self.MOTs.rmot_freq_f,  self.MOTs.rmot_freq_depth_i, self.MOTs.rmot_freq_depth_f, freq)

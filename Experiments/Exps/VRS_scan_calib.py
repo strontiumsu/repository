@@ -80,7 +80,7 @@ class VRS_scan_calib_exp(Scan1D, EnvExperiment):
         self.Bragg.prepare_aoms()
         self.State_Control.prepare_aoms()
         if self.Image:
-            self.Camera.camera_init()
+            self.Camera.camera_init(N=len(list(self.get_scan_points()))*self.nrepeats*self.npasses + 1)
             
         if self.freq_width/2 > self.freq_center: raise Exception("Bad Range...")
         if self.Calibrate and self.Image: raise Exception("Cannot Image Cloud and Calibrate Bare Cavity Simultaneously...")
@@ -113,9 +113,6 @@ class VRS_scan_calib_exp(Scan1D, EnvExperiment):
 
 
         self.core.wait_until_mu(now_mu())
-    
-    def before_measure(self, point, measurement):
-        if self.Image:self.Camera.arm()
     
     @kernel
     def measure(self, point):

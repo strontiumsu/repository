@@ -103,7 +103,7 @@ class DipoleTrapFrequencyAxial_exp(Scan1D, FreqScan, EnvExperiment):
     def prepare(self):
         self.MOTs.prepare_aoms()
         self.MOTs.prepare_coils()
-        self.Camera.camera_init(N=len(list(self.get_scan_points()))*self.nrepeats*self.npasses + 10)
+        self.Camera.camera_init(N=len(list(self.get_scan_points()))*self.nrepeats*self.npasses + 1)
         self.Bragg.prepare_aoms()
         
         # register model with scan framework
@@ -197,9 +197,6 @@ class DipoleTrapFrequencyAxial_exp(Scan1D, FreqScan, EnvExperiment):
         return int(10**6 * narrow_counts/wide_counts)
 
 
-
-    def after_scan(self):
-        self.Camera.disarm()
 
     @kernel
     def load_mod(self, dds, ai, af, freq):

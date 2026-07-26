@@ -69,7 +69,7 @@ class ClockExcitation2_exp(Scan1D, TimeFreqScan, EnvExperiment):
         
         self.MOTs.prepare_coils()
         
-        self.Camera.camera_init()
+        self.Camera.camera_init(N=len(list(self.get_scan_points()))*self.nrepeats*self.npasses + 1)
         
         
         self.enable_histograms = True
@@ -103,11 +103,8 @@ class ClockExcitation2_exp(Scan1D, TimeFreqScan, EnvExperiment):
         delay(50*ms)
         self.core.wait_until_mu(now_mu())
         
-    def before_measure(self, point, measurement):
-        self.Camera.arm()
- 
     @kernel
-    def measure(self, time, frequency):        
+    def measure(self, time, frequency):
         
         
         #prepare

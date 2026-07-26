@@ -104,7 +104,7 @@ class VRS_TTL_calib_exp(Scan1D, EnvExperiment):
         self.MOTs.prepare_coils()
         
         if self.Image:
-            self.Camera.camera_init()
+            self.Camera.camera_init(N=len(list(self.get_scan_points()))*self.nrepeats*self.npasses + 1)
             
         # if self.probe_type != "Constant": raise Exception("Scanning Probe Not Implemented...")
         if self.freq_width_car/2 > self.freq_center_car: raise Exception("Bad Carrier Range...")
@@ -143,9 +143,7 @@ class VRS_TTL_calib_exp(Scan1D, EnvExperiment):
     
     @kernel
     def before_measure(self, point, measurement):
-        if self.Image: self.Camera.arm()
-        
-        self.core.break_realtime() 
+        self.core.break_realtime()
         delay(1*ms) 
         
         ##### ENSURE KNOWN STATES ################

@@ -57,7 +57,7 @@ class DipoleTrapFrequency_exp(Scan1D, TimeScan, EnvExperiment):
         #prepare/initialize mot hardware and camera
         self.MOTs.prepare_aoms()
         self.MOTs.prepare_coils()
-        self.Camera.camera_init()
+        self.Camera.camera_init(N=len(list(self.get_scan_points()))*self.nrepeats*self.npasses + 1)
         self.Bragg.prepare_aoms()
         # register model with scan framework
         self.enable_histograms = True
@@ -95,7 +95,6 @@ class DipoleTrapFrequency_exp(Scan1D, TimeScan, EnvExperiment):
         t_delay = point
         self.core.wait_until_mu(now_mu())
         self.core.reset()
-        self.Camera.arm()
         delay(200*ms)
 
         self.MOTs.AOMs_off_all()

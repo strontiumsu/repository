@@ -45,7 +45,7 @@ class BlueMOTLoading_exp(Scan1D, TimeScan, EnvExperiment):
         #prepare/initialize mot hardware and camera
         self.MOTs.prepare_aoms()
         self.MOTs.prepare_coils()
-        self.Camera.camera_init(N=len(self.get_scan_points())*self.nrepeats * self.npasses + 10)
+        self.Camera.camera_init(N=len(list(self.get_scan_points()))*self.nrepeats*self.npasses + 1)
         
         # register model with scan framework
         self.model = LoadingModel(self)

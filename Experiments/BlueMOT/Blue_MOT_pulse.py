@@ -30,7 +30,7 @@ class Blue_MOT_pulse_exp(EnvExperiment):
         self.MOTs.prepare_aoms()
         self.MOTs.prepare_coils()
 
-        if self.image: self.Camera.camera_init(N=int(self.pulses) + 10)
+        if self.image: self.Camera.camera_init(N=int(self.pulses) + 1)
 
     @kernel
     def run(self):

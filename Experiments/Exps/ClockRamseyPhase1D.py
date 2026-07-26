@@ -86,7 +86,7 @@ class ClockRamseyPhase_exp(Scan1D, EnvExperiment):
         
         self.MOTs.prepare_coils()
         
-        self.Camera.camera_init()
+        self.Camera.camera_init(N=len(list(self.get_scan_points()))*self.nrepeats*self.npasses + 1)
         
         
         self.enable_histograms = True
@@ -134,7 +134,6 @@ class ClockRamseyPhase_exp(Scan1D, EnvExperiment):
         self.core.reset()
         
         delay(10*ms)
-        self.Camera.arm()
         delay(200*ms)
         self.t0 = now_mu()
         # sets the phase for everything, 

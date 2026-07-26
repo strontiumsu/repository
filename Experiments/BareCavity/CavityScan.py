@@ -14,7 +14,6 @@ import numpy as np
 
 
 from CoolingClass import _Cooling
-from CameraClass import _Camera
 from BraggClass import _Bragg
 from repository.models.scan_models import RabiModel # pyright: ignore[reportMissingImports]
 

@@ -133,9 +133,10 @@ class ClockRamseyPhase2D_exp(Scan2D, EnvExperiment):
         
         self.MOTs.prepare_coils()
         
-        self.Camera.camera_init()
-        
-        
+        scan_points = self.get_scan_points()
+        self.Camera.camera_init(N=len(list(scan_points[0]))*len(list(scan_points[1]))
+                                  * self.nrepeats*self.npasses + 1)
+
         self.enable_histograms = True
         self.model1 = RamseyDecayModel(self)
         self.model2 = RamseyPhaseModel(self)
@@ -169,12 +170,8 @@ class ClockRamseyPhase2D_exp(Scan2D, EnvExperiment):
         delay(50*ms)
         self.core.wait_until_mu(now_mu())
     
-    def before_measure(self, point, measurement):
-        self.Camera.arm()      
-  
- 
     @kernel
-    def measure(self, point):        
+    def measure(self, point):
         
         #prepare
         self.core.wait_until_mu(now_mu())
