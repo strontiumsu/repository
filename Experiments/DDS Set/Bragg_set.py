@@ -20,7 +20,7 @@ class Bragg_set(EnvExperiment):
 
         self.setattr_argument("Dipole", BooleanValue(False))
         self.setattr_argument("Sideband", BooleanValue(False))
-        self.setattr_argument("Push", BooleanValue(False))
+        self.setattr_argument("Carrier", BooleanValue(False))
         self.setattr_argument("Lattice", BooleanValue(False))
 
         

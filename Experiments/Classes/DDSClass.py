@@ -141,11 +141,11 @@ class _DDSGroup(EnvExperiment):
             self.urukul_channels[i].sw.on()
 
     @kernel
-    def set_AOM_freq(self, ind, freq):
+    def set_AOM_freq(self, ind, freq, scale=0.8):
         self.freqs[ind] = freq
         ch = self.urukul_channels[ind]
         ch.set_mu(ch.frequency_to_ftw(freq),
-                  asf=ch.amplitude_to_asf(self.scales[ind]))
+                  asf=ch.amplitude_to_asf(scale))
 
     @kernel
     def set_AOM_atten(self, ind, atten):
