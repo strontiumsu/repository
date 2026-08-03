@@ -25,6 +25,15 @@ from CoolingDDSClass import _CoolingDDS
 #hardware constants
 RATE_WORD = 8  # sets the speed of the DRG accumulator for the rmot ramps [1, 16]
 RMOT_SWEEP_DT = 100*us  # time step for the rmot sweep, used to calculate n and dt in prepare_aoms
+ARB_RAMP_NPOINTS = 60
+
+# rmot-pulse field ramp (DMA) parameters
+FIELD_RAMP_DT = 50*us   # time step for the DMA coil-field ramps (fine -> many points)
+BINC          = 1.0     # extra coil current above bmot_current during the blue->red capture ramp
+BLUE_TRANSFER_TIME = 50*ms  # duration of the blue-current + blue-attenuation capture ramp
+TO_BB_TIME     = 15*ms  # duration of the ramp from blue MOT current to broadband red MOT current
+SF_DOWN_TIME   = 5*ms   # duration of the final coil rampdown (dipole_on branch)
+MAX_CURRENT    = 7.0    # hard limit on the coil current setpoint (DAC volts)
 
 # zotino channels
 BFIELD_DAC = 0  # controls setpoint for the MOT coils (zotino0_ch0)
@@ -92,8 +101,8 @@ class _Cooling(EnvExperiment):
                             NumberValue(50.0*1e-3, min=0.0*1e-3, max=300*1e-3, scale=1e-3,unit="ms"), "Red MOT")  # how long to old broad band
         self.setattr_argument("rmot_ramp_duration", 
                             NumberValue(85.0*1e-3, min=0.0, max=200*1e-3, scale=1e-3, unit="ms"), "Red MOT")  # how long to ramp between bb and sf
-        self.setattr_argument("rmot_sf_current", 
-                            NumberValue(2.0, min=0.0, max=10.0,unit="A"), "Red MOT")  # single frequency mot current
+        self.setattr_argument("rmot_sf_current",
+                            NumberValue(2.0, min=0.0, max=7.0,unit="A"), "Red MOT")  # single frequency mot current
         self.setattr_argument("rmot_sf_duration", 
                             NumberValue(25.0*1e-3, min=0.0*1e-3, max=300.0*1e-3, scale=1e-3, unit="ms"), "Red MOT")  # how long to hold atoms in sf red mot
         self.setattr_argument("freq_high", 
@@ -142,7 +151,16 @@ class _Cooling(EnvExperiment):
         self.n             = 0 # points in sweep
         self.dt_mu         = int64(0) # time step
 
-        # variables for xxx (FILL IN AS NEEDED)
+        # precomputed DMA coil-field ramps for the rmot pulse (built in prepare_coils)
+        self.blue_up_mu    = [int32(0)]  # 0 -> bmot_current
+        self.blue_load_mu  = [int32(0)]  # bmot_current -> +BINC
+        self.blue_att_db   = [0.0]       # blue AOM attenuation baked into the blue_load trace
+        self.to_bb_mu      = [int32(0)]  # +BINC -> rmot_bb_current
+        self.sf_down_mu    = [int32(0)]  # rmot_sf_current -> 0
+
+        # normalized shape for the one-off (non-DMA) ramp_field()
+        self.ramp_npoints  = 0
+        self.ramp_norm     = [0.0]
 
     @kernel
     def init_ttls(self):
@@ -162,6 +180,11 @@ class _Cooling(EnvExperiment):
     ## ------------- AOM FUNCTIONS
     def prepare_aoms(self):
         self.dds.prepare_aoms()
+        self._prepare_rmot_ramp()  # precompute the rmot ramps for DMA recording (played every shot)
+    
+
+    def _prepare_rmot_ramp(self):
+        """Precompute the rmot ramps for DMA recording (played every shot)."""
 
         n = int(self.rmot_ramp_duration / (RMOT_SWEEP_DT))  # update at 100us step size the rmot ramp
         dt = self.rmot_ramp_duration / n
@@ -213,6 +236,11 @@ class _Cooling(EnvExperiment):
         self.set_sweep(0, init=True)  # starts red mot sweep at initial depth, init to config CFR2
         self.core.break_realtime()
 
+        # record every repeated rmot-pulse field ramp into DMA once; played each shot
+        self.record_rmot_ramp()
+        self.record_field_ramps()
+        self.core.break_realtime()
+
     ## ---------- RMOT SWEEP HANDLING AND DMA RECORDINGS
     @kernel
     def set_sweep(self, i, init=False, REG_LIMIT=0x0B, REG_STEP=0x0C, REG_RATE=0x0D, REG_CFR2=0x01, CFR2_RUN=0x010F0020):
@@ -242,13 +270,48 @@ class _Cooling(EnvExperiment):
                 self.zotino0.load()
 
                 self.set_sweep(i) # sets the frequency sweep params for the DRG, assumes already running
-                
+
                 t += self.dt_mu
             at_mu(t)
 
+    @kernel
+    def _record_field_ramp(self, name, ramp_mu, dt, duration):
+        """Record a single-channel coil-field DMA ramp (BFIELD_DAC) under `name`.
 
-    
-        
+        Given the point spacing `dt` and total `duration`, the point count and
+        machine-unit step are computed here (must match build_field_ramp's sizing).
+        """
+        n = int(duration / dt)
+        dt_mu = self.core.seconds_to_mu(duration / n)
+        with self.core_dma.record(name):
+            t = now_mu()
+            for i in range(n):
+                at_mu(t)
+                self.zotino0.write_dac_mu(BFIELD_DAC, ramp_mu[i])
+                self.zotino0.load()
+                t += dt_mu
+            at_mu(t)
+
+    @kernel
+    def record_field_ramps(self):
+        """Record the repeated rmot-pulse coil-field ramps into named DMA traces (once, at init)."""
+        self._record_field_ramp("field_blue_up", self.blue_up_mu, FIELD_RAMP_DT, self.bmot_ramp_duration)
+        self._record_field_ramp("field_to_bb",   self.to_bb_mu,   FIELD_RAMP_DT, TO_BB_TIME)
+        self._record_field_ramp("field_sf_down", self.sf_down_mu, FIELD_RAMP_DT, SF_DOWN_TIME)
+
+        # blue capture ramp: coil current + blue AOM attenuation baked into one trace
+        n = int(BLUE_TRANSFER_TIME / FIELD_RAMP_DT)
+        dt_mu = self.core.seconds_to_mu(BLUE_TRANSFER_TIME / n)
+        with self.core_dma.record("field_blue_load"):
+            t = now_mu()
+            for i in range(n):
+                at_mu(t)
+                self.zotino0.write_dac_mu(BFIELD_DAC, self.blue_load_mu[i])
+                self.zotino0.load()
+                self.aom_3D_blue.set_att(self.blue_att_db[i])
+                t += dt_mu
+            at_mu(t)
+
     @kernel
     def line_trigger(self, offset=5*ms):
         # sets start of exp relative to linetrigger
@@ -307,10 +370,32 @@ class _Cooling(EnvExperiment):
 
 
     ## --------------- MOT COIL FUNCTIONS
+    def build_field_ramp(self, start, end, time, dt, shape_kind):
+        """Host: build a coil-field ramp as a list of DAC machine units.
+
+        The coil setpoint IS a DAC voltage, so values map through voltage_to_mu
+        (no current<->voltage conversion). Point count is int(time/dt) -- the
+        recorder recomputes the same n from the same (dt, time) it is given.
+        """
+        n = int(time / dt)
+        x = np.linspace(0, 1, n)
+        v = start + (end - start) * shape(shape_kind, x, self.ramp_tau)   # setpoint = DAC volts
+        assert v.max() <= MAX_CURRENT and v.min() >= 0.0, "field ramp setpoint out of range [0, MAX_CURRENT]"
+        return [voltage_to_mu(float(vi)) for vi in v]
+
     def prepare_coils(self):
-        self.Npoints += (1-self.Npoints%2)  # ensures off number of points
-        self.window = np.blackman(self.Npoints)
-        self.dt = self.bmot_ramp_duration/((self.Npoints+1)//2)
+        # one-off (non-DMA) ramp: normalized 0->1 shape, scaled in-kernel by ramp_field()
+        self.ramp_norm = [float(v) for v in
+                          shape('blackman', np.linspace(0, 1, ARB_RAMP_NPOINTS), self.ramp_tau)]
+
+        # precomputed DMA field ramps for the rmot pulse (recorded once, played every shot);
+
+        self.blue_up_mu   = self.build_field_ramp(0.0,                      self.bmot_current,          self.bmot_ramp_duration, FIELD_RAMP_DT, "blackman")
+        self.blue_load_mu = self.build_field_ramp(self.bmot_current,        self.bmot_current + BINC,   BLUE_TRANSFER_TIME,      FIELD_RAMP_DT, "lin")
+        self.to_bb_mu     = self.build_field_ramp(self.bmot_current + BINC, self.rmot_bb_current,       TO_BB_TIME,              FIELD_RAMP_DT, "blackman")
+        self.sf_down_mu   = self.build_field_ramp(self.rmot_sf_current,     0.0,                        SF_DOWN_TIME,            FIELD_RAMP_DT, "blackman")
+
+        self.blue_att_db  = [float(a) for a in np.linspace(6.0, 30.0, len(self.blue_load_mu))]
 
     @kernel
     def init_coils(self):
@@ -327,7 +412,7 @@ class _Cooling(EnvExperiment):
     # sets MOT current
     @kernel
     def set_current(self, cur):
-        if cur > 7.0:
+        if cur > MAX_CURRENT:
             raise Exception("Current too high!")
         else:
             self.dac_set(BFIELD_DAC, cur)
@@ -347,61 +432,23 @@ class _Cooling(EnvExperiment):
         delay(1*ms)
 
     @kernel
-    def Blackman_ramp_up(self, cur):
-        for step in range(0, int((self.Npoints+1)//2)):
-            self.dac_set(BFIELD_DAC, cur*self.window[step])
-            delay(self.dt)
+    def ramp_field(self, start, end, time, kind="blackman"):
+        """One-off (non-DMA), CPU-issued coil-field ramp for arbitrary experiments.
 
-    @kernel
-    def Blackman_ramp_down(self, cur=-1.0, time=-1.0):
-        if cur == -1.0: cur = self.bmot_current
-        if time == -1.0:
-            dt = self.dt
-        else:
-            dt = time/((self.Npoints-1)//2)
-
-        for step in range(int((self.Npoints+1)//2), int(self.Npoints)):
-            self.dac_set(BFIELD_DAC, cur*self.window[step])
+        Scales the normalized shape precomputed in prepare_coils() by the endpoints, so
+        start/end/time are fully runtime-flexible. Use the DMA traces for the repeated
+        rmot-pulse ramps instead (see record_field_ramps).
+        """
+        assert (start >= 0.0) and (end >= 0.0) and (start <= MAX_CURRENT) and (end <= MAX_CURRENT)
+        dt = time / (ARB_RAMP_NPOINTS - 1)
+        for step in range(ARB_RAMP_NPOINTS):
+            if kind == "blackman":
+                self.set_current(start + (end - start) * self.ramp_norm[step])
+            elif kind == 'lin':
+                self.set_current(start + (end - start) * step / (ARB_RAMP_NPOINTS - 1))
+            else:
+                raise Exception("Invalid ramp kind for ramp_field()")
             delay(dt)
-
-    @kernel
-    def Blackman_ramp_down_set(self, cur, final, time):
-        dt_ramp = time/((self.Npoints-1)//2)
-        for step in range(int((self.Npoints+1)//2), int(self.Npoints)):
-            self.dac_set(BFIELD_DAC, final + (cur-final)*self.window[step])
-            delay(dt_ramp)
-
-    @kernel
-    def linear_ramp_down_capture(self, time):
-        dt = time/self.Npoints
-        for step in range(int(self.Npoints)):
-            self.dac_set(BFIELD_DAC, self.bmot_current+((self.rmot_bb_current-self.bmot_current)/time)*step*dt)
-            delay(dt)
-
-    @kernel
-    def linear_ramp(self, bottom, top, time, Npoints):
-        dt = time/Npoints
-        for step in range(1, int(Npoints)):
-            self.dac_set(BFIELD_DAC, bottom + (top-bottom)/time*step*dt)
-            delay(dt)
-
-    @kernel
-    def Blackman_ramp(self, start, end, time):
-        assert (start >= 0) and (end >= 0) and (start <= 7.0) and (end <= 7.0)
-        dt_ramp = time/((self.Npoints-1)//2)  # step size
-
-        # ramp up
-        if end > start:
-            for step in range(int((self.Npoints+1)//2)):
-                self.dac_set(BFIELD_DAC, start + (end-start)*self.window[step])
-                delay(dt_ramp)
-
-        #ramp down
-        elif end < start:
-            for step in range(int((self.Npoints-1)//2), int(self.Npoints)):
-                self.dac_set(BFIELD_DAC, end + (start-end)*self.window[step])
-                delay(dt_ramp)
-
 
     @kernel
     def bMOT_pulse(self):
@@ -411,9 +458,9 @@ class _Cooling(EnvExperiment):
         self.aom_3P0.sw.on()
         self.aom_3P2.sw.on()
 
-        self.Blackman_ramp_up(self.bmot_current)
+        self.ramp_field(0.0, self.bmot_current, self.bmot_ramp_duration)
         delay(self.bmot_load_duration)
-        self.Blackman_ramp_down()
+        self.ramp_field(self.bmot_current, 0.0, self.bmot_ramp_duration)
 
         # turn on 3D, and repumps
         self.aom_3D_blue.sw.off()
@@ -432,7 +479,7 @@ class _Cooling(EnvExperiment):
         self.aom_3P2.sw.on()
 
         self.set_current_dir(0) # ramp current up
-        self.Blackman_ramp_up(self.bmot_current)
+        self.ramp_field(0.0, self.bmot_current, self.bmot_ramp_duration)
 
         delay(self.bmot_load_duration) # hold for load duration
 
@@ -444,11 +491,6 @@ class _Cooling(EnvExperiment):
         self.aom_3D_red.set_att(self.atten_3D_red)
         self.aom_3D_red.set_amplitude(0.8)
 
-        # record red mot rampramp
-        self.record_rmot_ramp() # dont need to do this each time   # host-CPU bound, ~20 ms for 1000 points
-        ramp_handle = self.core_dma.get_handle("rmot_ramp")
-        self.core.break_realtime()
-
         # turn on 3D, and repumps
         self.aom_3D_blue.sw.on()
         self.aom_3P0.sw.on()
@@ -458,8 +500,8 @@ class _Cooling(EnvExperiment):
         # turn to MOT mode
         self.set_current_dir(0)
 
-        #ramp up bmot bfield and hold for load duration
-        self.Blackman_ramp(0.0, self.bmot_current, self.bmot_ramp_duration)
+        # ramp up bmot bfield (DMA) and hold for load duration
+        self.core_dma.playback("field_blue_up")
         delay(self.bmot_load_duration)
 
        # line trigger for consistent time relative to mains
@@ -468,30 +510,24 @@ class _Cooling(EnvExperiment):
         delay(5*us)
         self.aom_3D_red.sw.on()
 
-        # ramp up blue MOT current and attenuation
-        tramp = 50*ms
-        binc = 1.0
-
-        dt = tramp/int(self.Npoints)
-        for step in range(1, int(self.Npoints)):
-            self.dac_set(0,  self.bmot_current + binc/tramp*step*dt)
-            self.aom_3D_blue.set_att(6+24*step/int(self.Npoints))
-            delay(dt)
+        # ramp up blue MOT current + blue attenuation together (DMA)
+        self.core_dma.playback("field_blue_load")
 
         # turn off blue light
         self.atom_source_off()
         self.aom_3D_blue.sw.off()
         delay(0.5*us)
 
-        # ramp up to broad band red mot current and hold`
-        self.Blackman_ramp(self.bmot_current + binc, self.rmot_bb_current, 15*ms)
+        # ramp up to broad band red mot current and hold (DMA)
+        self.core_dma.playback("field_to_bb")
         delay(self.rmot_bb_duration)
 
         # turn off repumpers
         self.aom_3P0.sw.off()
         self.aom_3P2.sw.off()
 
-        self.core_dma.playback_handle(ramp_handle)  # plays back the recorded ramp, duration=self.rmot_ramp_duration
+        # rmot compression: coil field + attenuation VVA + DRG frequency sweep (DMA)
+        self.core_dma.playback("rmot_ramp")
 
         # switch to single frequency mode then hold
         if sf:
@@ -501,7 +537,7 @@ class _Cooling(EnvExperiment):
         self.urukul1_cpld.set_profile(0)
 
         if dipole_on == True:
-            self.Blackman_ramp(self.rmot_sf_current, 0.0, 5*ms)
+            self.core_dma.playback("field_sf_down")  # rmot_sf_current -> 0 (DMA)
         else:
             self.coils_off()
 
@@ -573,4 +609,5 @@ def shape(kind, x, tau=0.3):
     if kind == "expinv":  return 1 - (1 - np.exp(-(1-x)/tau)) / (1 - np.exp(-1/tau))
     if kind == "quad":    return x*x
     if kind == "sqrt":    return np.sqrt(x)
+    if kind == "blackman": return 0.42 - 0.5*np.cos(np.pi*x) + 0.08*np.cos(2*np.pi*x)
     raise ValueError("unknown shape: " + kind)
