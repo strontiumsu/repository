@@ -40,20 +40,10 @@ class Red_MOT_pulse_exp(EnvExperiment):
         self.MOTs.prepare_coils()
         # Initialize camera
         self.Camera.camera_init(N=int(self.pulses) + 1)
+              
         
-     
-    @kernel 
-    def run(self):
-        # initial devices
-        self.init_exp()     
-        self.run_exp()
-        self.cleanup()
-
-
-
-
     @kernel
-    def init_exp(self):
+    def runp(self):
         self.core.reset()
 
         self.MOTs.init_coils()
@@ -65,20 +55,10 @@ class Red_MOT_pulse_exp(EnvExperiment):
 
         self.MOTs.AOMs_off_all()
         self.MOTs.atom_source_off()
-
-        
-
-        
-        
-    @kernel
-    def run_exp(self):
-        delay(10*ms)
-        # self.MOTs.init_rmot_dds(self.MOTs.rmot_freq_i, self.MOTs.rmot_freq_f, self.MOTs.rmot_freq_depth_i,self.MOTs.rmot_freq_depth_f, self.MOTs.freq_3D_red)
         self.core.break_realtime()
         delay(10*ms)
 
         for _ in range(int(self.pulses)):
-            # self.MOTs.rMOT_pulse_new()
             self.MOTs.rmot_pulse_drg()
 
             delay(self.wait_time)
@@ -97,12 +77,12 @@ class Red_MOT_pulse_exp(EnvExperiment):
             self.MOTs.AOMs_off_all()
             delay(50*ms)
 
-            
-    @kernel
-    def cleanup(self):
         delay(20*ms)
         self.MOTs.AOMs_on_all()
         self.MOTs.atom_source_on()
+
+
+        
         
          
     
