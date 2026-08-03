@@ -73,12 +73,13 @@ class Red_MOT_pulse_exp(EnvExperiment):
     @kernel
     def run_exp(self):
         delay(10*ms)
-        self.MOTs.init_rmot_dds(self.MOTs.rmot_freq_i, self.MOTs.rmot_freq_f, self.MOTs.rmot_freq_depth_i,self.MOTs.rmot_freq_depth_f, self.MOTs.freq_3D_red)
+        # self.MOTs.init_rmot_dds(self.MOTs.rmot_freq_i, self.MOTs.rmot_freq_f, self.MOTs.rmot_freq_depth_i,self.MOTs.rmot_freq_depth_f, self.MOTs.freq_3D_red)
         self.core.break_realtime()
         delay(10*ms)
 
         for _ in range(int(self.pulses)):
-            self.MOTs.rMOT_pulse_new()
+            # self.MOTs.rMOT_pulse_new()
+            self.MOTs.rmot_pulse_drg()
 
             delay(self.wait_time)
 
