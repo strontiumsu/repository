@@ -8,8 +8,8 @@ transfer time (~4 us/point) rather than by CPU event-issue time.
 """
 
 from numpy import int32, int64
-from artiq.experiment import *
-from artiq.coredevice.ad53xx import voltage_to_mu
+from artiq.experiment import kernel, MHz, EnvExperiment, NumberValue, ms, at_mu, us, now_mu, delay, EnumerationValue, kHz # pyright: ignore[reportMissingImports]
+from artiq.coredevice.ad53xx import voltage_to_mu # pyright: ignore[reportMissingImports]
 import numpy as np
 
 

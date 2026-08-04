@@ -21,10 +21,8 @@ ARTIQ notes (see the DDS refactor plan):
     self.n_channels rather than len() of a list of strings.
 """
 
-from artiq.experiment import EnvExperiment, NumberValue
-from artiq.experiment import kernel, delay, ms, now_mu
-
-from artiq.coredevice.ad9910 import PHASE_MODE_TRACKING
+from artiq.experiment import EnvExperiment, NumberValue, kernel, delay, ms  # pyright: ignore[reportMissingImports]
+from artiq.coredevice.ad9910 import PHASE_MODE_TRACKING # pyright: ignore[reportMissingImports]
 
 
 class _DDSGroup(EnvExperiment):
