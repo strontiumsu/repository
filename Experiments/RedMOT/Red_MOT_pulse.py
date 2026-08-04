@@ -13,6 +13,7 @@ from artiq.experiment import EnvExperiment, kernel, ms,us, MHz, NumberValue, del
 import numpy as np
 from CoolingClass import _Cooling
 from CameraClass import _Camera
+from BraggClass import _Bragg
 
 
 class Red_MOT_pulse_exp(EnvExperiment):
@@ -21,6 +22,7 @@ class Red_MOT_pulse_exp(EnvExperiment):
         self.setattr_device("scheduler")
 
         self.MOTs = _Cooling(self)
+        self.Bragg = _Bragg(self)  # dipole/lattice beam AOMs in here
         self.Camera = _Camera(self)
         
         self.setattr_device("ttl5") # timing pulse
@@ -37,6 +39,7 @@ class Red_MOT_pulse_exp(EnvExperiment):
 
     def prepare(self):
         self.MOTs.prepare_cooling()
+        self.Bragg.prepare_aoms()
         self.Camera.camera_init(N=int(self.pulses) + 1)
               
         
@@ -44,6 +47,7 @@ class Red_MOT_pulse_exp(EnvExperiment):
     def run(self):
         self.core.reset()
         self.MOTs.init_cooling()
+        self.Bragg.init_aoms(switches=0x9)
         delay(10*ms)
 
         self.MOTs.take_background_image_exp(self.Camera)
