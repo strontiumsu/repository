@@ -26,6 +26,4 @@ class _CoolingDDS(_DDSGroup):
     ALIASES = {"aom_3D_blue": 0, "aom_3P0": 1, "aom_3P2": 2, "aom_3D_red": 3}
 
 
-    # init_aoms is inherited from _DDSGroup; the core.reset() wrapper used at the
-    # start of an experiment lives on _Cooling.init_aoms, which calls
-    # self.dds._init_channels(...) directly.
+    # init_aoms is inherited from _DDSGroup

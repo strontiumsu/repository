@@ -71,8 +71,7 @@ class _Cooling(EnvExperiment):
         self.setattr_device("core_dma")
         self.setattr_device("scheduler")
 
-        # urukul1 AOMs live in their own DDS class; _Cooling drives it as self.dds and
-        # mirrors its channel aliases / per-AOM args onto itself for convenience
+        # mirror all cooling DDS variables and dunctions here for convencience
         self.dds = _CoolingDDS(self)
         for a in self.dds.ALIASES:                     # aom_3D_blue / aom_3P0 / aom_3P2 / aom_3D_red
             setattr(self, a, getattr(self.dds, a))
@@ -164,186 +163,128 @@ class _Cooling(EnvExperiment):
         # normalized shape for the one-off (non-DMA) ramp_field()
         self.ramp_norm     = [0.0]
 
-    ## ---------- HOST PREPARE (runs on host in prepare(), not on the core)
-    def prepare_aoms(self):
+    ## ---------- HOST PREPARE 
+    def prepare_cooling(self):
         self.dds.prepare_aoms()
-        self._prepare_rmot_ramp()  # precompute the rmot compression sweep for DMA recording
-
-    def _prepare_rmot_ramp(self):
-        """Precompute the rmot compression sweep: DRG limits/steps and the attenuation
-        and coil-field DAC ramps that record_rmot_ramp() bakes into one DMA trace."""
-        n = int(self.rmot_ramp_duration / RMOT_SWEEP_DT)  # ~100us step size
-        dt = self.rmot_ramp_duration / n
-
-        x = np.linspace(0, 1, n)            # 0 at the start, 1 at the end
-
-        # frequency span -> DRG limits and step words
-        span = (self.freq_high - self.freq_low_i) + (self.freq_low_i - self.freq_low_f)*shape(self.shape_freq, x, self.ramp_tau)
-        span_ftw = [self.dds.frequency_to_ftw(s) for s in span]
-
-        upper = self.dds.frequency_to_ftw(self.freq_high)
-        step_up = [int(np.round(s * self.rmot_scan_frequency * 4e-9 * RATE_WORD)) for s in span_ftw]
-
-        # zotino sweep values (attenuation VVA and coil field, both DAC volts)
-        volts_atten = self.atten_ramp_i + (self.atten_ramp_f - self.atten_ramp_i)*shape(self.shape_atten, x, self.ramp_tau)
-        volts_field = self.rmot_bb_current + (self.rmot_sf_current - self.rmot_bb_current)*shape('lin', x)
-
-        self.upper   = int32(upper)
-        self.lower   = [int32(upper - v) for v in span_ftw]
-        self.step_up = [int32(v) for v in step_up]
-        self.step_dn = [int32(v) for v in span_ftw]
-
-        self.atten_dac_mu = [voltage_to_mu(float(v)) for v in volts_atten]
-        self.field_dac_mu = [voltage_to_mu(float(v)) for v in volts_field]
-
-        self.rmot_n     = n
-        self.rmot_dt_mu = self.core.seconds_to_mu(dt)
-
-    def prepare_coils(self):
-        # one-off (non-DMA) ramp: normalized 0->1 shape, scaled in-kernel by ramp_field()
-        self.ramp_norm = [float(v) for v in
-                          shape('blackman', np.linspace(0, 1, ARB_RAMP_NPOINTS), self.ramp_tau)]
-
-        # precomputed DMA coil-field ramps for the rmot pulse (recorded once, played every shot)
-        self.blue_up_mu   = self.build_field_ramp(0.0,                      self.bmot_current,        self.bmot_ramp_duration, FIELD_RAMP_DT, "blackman")
-        self.blue_load_mu = self.build_field_ramp(self.bmot_current,        self.bmot_current + BINC, BLUE_TRANSFER_TIME,      FIELD_RAMP_DT, "lin")
-        self.to_bb_mu     = self.build_field_ramp(self.bmot_current + BINC, self.rmot_bb_current,     TO_BB_TIME,              FIELD_RAMP_DT, "blackman")
-        self.sf_down_mu   = self.build_field_ramp(self.rmot_sf_current,     0.0,                      SF_DOWN_TIME,            FIELD_RAMP_DT, "blackman")
-
-        # blue AOM attenuation ramped alongside the blue_load field ramp (same point count)
-        self.blue_att_db  = [float(a) for a in np.linspace(6.0, 30.0, len(self.blue_load_mu))]
-
-    def build_field_ramp(self, start, end, time, dt, shape_kind):
-        """Host: build a coil-field ramp as a list of DAC machine units.
-
-        The coil setpoint IS a DAC voltage, so values map through voltage_to_mu
-        (no current<->voltage conversion). The array length (int(time/dt)) is the
-        single source of truth for the recorder's timing.
-        """
-        n = int(time / dt)
-        x = np.linspace(0, 1, n)
-        v = start + (end - start) * shape(shape_kind, x, self.ramp_tau)   # setpoint = DAC volts
-        assert v.max() <= MAX_CURRENT and v.min() >= 0.0, "field ramp setpoint out of range [0, MAX_CURRENT]"
-        return [voltage_to_mu(float(vi)) for vi in v]
-
-    ## ---------- INIT (kernel, run once at experiment start)
+        self._prepare_rmot_ramp()  # writes DMA for rmot broadband compression and field/atten ramps
+        self._prepare_coils()      # writes DMAs for current ramps and a blackman profile for any arbitrary ramp
+    ## ----------- KERNEL INIT
     @kernel
-    def init_ttls(self):
-        # uncomment channels as needed
-        delay(10*ms)
-        self.ttl1.input()
-        self.ttl5.output()
-        self.ttl7.output()
-        self.core.break_realtime()
-        delay(10*ms)
+    def init_cooling(self, switches=0x0):
+        self._init_ttls()  # turns on in correct in/output configuration
+        self._init_coils()  # turns on zotino
+        self._init_aoms(switches)  # turns on and initializes urukul
+        self._dma_record()  # records every repeated  DMA trace
+        self.core.break_realtime()  # sync timing
+
+    ## ---------- MOT SEQUENCES
+    @kernel
+    def bMOT_pulse(self):
+        # turn on all lasers
+        self.atom_source_on()
+        self.aom_3D_blue.sw.on()
+        self.aom_3P0.sw.on()
+        self.aom_3P2.sw.on()
+        self.set_current_dir(0) # ensure MOT config
+
+        self.core_dma.playback("field_blue_up")  # ramp up to bmot_current
+        delay(self.bmot_load_duration)
+        self.core_dma.playback("field_blue_down")  # ramp down to 0.0
+
+        # turn off 3D, and repumps
+        self.aom_3P2.sw.off()
+        self.aom_3P0.sw.off()
+        self.aom_3D_blue.sw.off()
+        self.atom_source_off()
 
     @kernel
-    def init_coils(self):
-        self.zotino0.init()  # initialize DAC that controls setpoint
-        delay(5*ms)
-        self.ttl7.off()  # puts in MOT config
-        self.core.break_realtime()
+    def bMOT_load(self):
+        self.atom_source_on() # turn all lasers on
+        self.aom_3D_blue.sw.on()
+        self.aom_3P0.sw.on()
+        self.aom_3P2.sw.on()
+        self.set_current_dir(0) # ensure MOT config
 
+        self.core_dma.playback("field_blue_up")  # ramp up to bmot_current
+        delay(self.bmot_load_duration) # hold for load duration
+    
     @kernel
-    def init_aoms(self, switches=0x0):
-        delay(5*ms)
-        self.dds.init_aoms(switches)
-        self.core.break_realtime()
-        delay(5*ms)
+    def rmot_pulse(self, sf=False, dipole_on=True):
+        self.AOMs_off_all()
 
-        self.aom_3D_red.set(self.freq_low_i, amplitude=self.scale_3D_red)   # sets ASF; FTW from DRG
-        self.zotino0.write_dac_mu(ATTEN_RAMP_DAC,  self.atten_dac_mu[0])  # sets initial attenuation for red MOT
-        self.zotino0.load()
+        # ensure powers at at correct power
+        self.aom_3D_blue.set_att(self.atten_3D)
+        self.aom_3D_red.set_att(self.atten_3D_red)
+        self.aom_3D_blue.set_amplitude(0.8)
+        self.aom_3D_red.set_amplitude(0.8)
 
-        self.set_sweep(0, init=True)  # starts red mot sweep at initial depth, init to config CFR2
-        self.core.break_realtime()
+        self.close_688()  # close 688 shutter to prevent leakage from optical pumping
+        self.atom_source_on() # turn all lasers on
+        self.aom_3D_blue.sw.on()
+        self.aom_3P0.sw.on()
+        self.aom_3P2.sw.on()
+        self.set_current_dir(0) # ensure MOT config
+        self.aom_3D_red.sw.off()
 
-        # record every repeated rmot-pulse DMA trace once (DRG must be initialised first)
-        self.record_rmot_ramp()
-        self.record_field_ramps()
-        self.core.break_realtime()
+        # ramp up bmot bfield and hold for load duration
+        self.core_dma.playback("field_blue_up")
+        delay(self.bmot_load_duration)
 
-    ## ---------- DMA RECORDING (kernel)
-    @kernel
-    def set_sweep(self, i, init=False, REG_LIMIT=0x0B, REG_STEP=0x0C, REG_RATE=0x0D, REG_CFR2=0x01, CFR2_RUN=0x010F0020):
-        """
-        Set the DRG sweep parameters for the i-th point in the ramp.
-        If init is True, also set the CFR2 register to start the sweep.
-        Only needs to be used at the start of the ramp, since the DRG will continue to sweep until the next update.
-        """
-        self.aom_3D_red.write64(REG_LIMIT, self.upper, self.lower[i]) # update sweep params
-        self.aom_3D_red.write64(REG_STEP, self.step_dn[i], self.step_up[i])
+        # line trigger for consistent time relative to mains and turn on rmot (already sweeping)
+        self.line_trigger()
+        self.aom_3D_red.sw.on()
+        
 
-        if init:
-            self.aom_3D_red.write32(REG_RATE, self.rate)  # if first time initialize sweep params
-            self.aom_3D_red.write32(REG_CFR2, CFR2_RUN)
+        # ramp up blue MOT current + blue attenuation together
+        self.core_dma.playback("field_blue_load")
 
-        self.aom_3D_red.cpld.io_update.pulse_mu(8) # update once at the end
+        # turn off blue light
+        self.atom_source_off()
+        self.aom_3D_blue.sw.off()
+        delay(1.0*us)
 
-    @kernel
-    def record_rmot_ramp(self):
-        """Compression sweep: attenuation VVA + coil field + DRG frequency sweep in one trace."""
-        with self.core_dma.record("rmot_ramp"):
-            t = now_mu()
-            for i in range(self.rmot_n):
-                at_mu(t)
+        # ramp field to broad band red mot current and hold
+        self.core_dma.playback("field_to_bb")
+        delay(self.rmot_bb_duration)
 
-                self.zotino0.write_dac_mu(ATTEN_RAMP_DAC, self.atten_dac_mu[i])
-                self.zotino0.write_dac_mu(BFIELD_DAC,     self.field_dac_mu[i])
-                self.zotino0.load()
+        # turn off repumpers
+        self.aom_3P0.sw.off()
+        self.aom_3P2.sw.off()
 
-                self.set_sweep(i) # sets the frequency sweep params for the DRG, assumes already running
+        # rmot compression: coil field + attenuation VVA + DRG frequency sweep
+        self.core_dma.playback("rmot_ramp")
+        
 
-                t += self.rmot_dt_mu
-            at_mu(t)
+        # hold in single frequency mode  ##TODO
+        delay(self.rmot_sf_duration)
+        self.aom_3D_red.sw.off()
+        self.ttl5.pulse(1*us)
+        delay(2.0*us)  # ensure light is off before field ramp down
 
-    @kernel
-    def _record_field_ramp(self, name, ramp_mu, duration):
-        """Record a single-channel coil-field DMA ramp (BFIELD_DAC) under `name`.
+        if dipole_on == True:
+            self.core_dma.playback("field_sf_down")  # rmot_sf_current -> 0 (DMA)
+        else:
+            self.coils_off()
 
-        The array length is the point count; the step is duration / n so the trace
-        spans exactly `duration`.
-        """
-        n = len(ramp_mu)
-        dt_mu = self.core.seconds_to_mu(duration / n)
-        with self.core_dma.record(name):
-            t = now_mu()
-            for i in range(n):
-                at_mu(t)
-                self.zotino0.write_dac_mu(BFIELD_DAC, ramp_mu[i])
-                self.zotino0.load()
-                t += dt_mu
-            at_mu(t)
+        self.open_688()  # open 688 shutter to allow for excitation
 
-    @kernel
-    def record_field_ramps(self):
-        """Record the repeated rmot-pulse coil-field ramps into named DMA traces (once, at init)."""
-        self._record_field_ramp("field_blue_up", self.blue_up_mu, self.bmot_ramp_duration)
-        self._record_field_ramp("field_to_bb",   self.to_bb_mu,   TO_BB_TIME)
-        self._record_field_ramp("field_sf_down", self.sf_down_mu, SF_DOWN_TIME)
+    
+   
 
-        # blue capture ramp: coil current + blue AOM attenuation baked into one trace
-        n = len(self.blue_load_mu)
-        dt_mu = self.core.seconds_to_mu(BLUE_TRANSFER_TIME / n)
-        with self.core_dma.record("field_blue_load"):
-            t = now_mu()
-            for i in range(n):
-                at_mu(t)
-                self.zotino0.write_dac_mu(BFIELD_DAC, self.blue_load_mu[i])
-                self.zotino0.load()
-                self.aom_3D_blue.set_att(self.blue_att_db[i])
-                t += dt_mu
-            at_mu(t)
+
+
+
 
     ## ---------- DAC / TTL / AOM UTILITIES (kernel)
     @kernel
-    def dac_set(self, chs, vals):
-        if type(chs) is not list: chs = [chs]  # cast to list if needed
-        if type(vals) is not list: vals = [vals]
+    def dac_set(self, ch, val):
+        self.zotino0.write_dac(ch, val)  # write values without updating
+        self.zotino0.load()  # update all at once
 
+    @kernel
+    def dac_set_list(self, chs, vals):
         for ch, val in zip(chs, vals):
             self.zotino0.write_dac(ch, val)  # write values without updating
-
         self.zotino0.load()  # update all at once
 
     # zeeman and 2D on/off via shutter
@@ -423,119 +364,11 @@ class _Cooling(EnvExperiment):
             raise Exception("Invalid direction for set_current_dir()")
         delay(1*ms)
 
-    @kernel
-    def ramp_field(self, start, end, time, kind="blackman"):
-        """One-off (non-DMA), CPU-issued coil-field ramp for arbitrary experiments.
+    
 
-        Scales the normalized shape precomputed in prepare_coils() by the endpoints, so
-        start/end/time are fully runtime-flexible. Use the DMA traces for the repeated
-        rmot-pulse ramps instead (see record_field_ramps).
-        """
-        assert (start >= 0.0) and (end >= 0.0) and (start <= MAX_CURRENT) and (end <= MAX_CURRENT)
-        dt = time / (ARB_RAMP_NPOINTS - 1)
-        for step in range(ARB_RAMP_NPOINTS):
-            if kind == "blackman":
-                self.set_current(start + (end - start) * self.ramp_norm[step])
-            elif kind == 'lin':
-                self.set_current(start + (end - start) * step / (ARB_RAMP_NPOINTS - 1))
-            else:
-                raise Exception("Invalid ramp kind for ramp_field()")
-            delay(dt)
+   
 
-    ## ---------- MOT SEQUENCES (kernel)
-    @kernel
-    def bMOT_pulse(self):
-        self.atom_source_on()
-        # turn on 3D, and repumps
-        self.aom_3D_blue.sw.on()
-        self.aom_3P0.sw.on()
-        self.aom_3P2.sw.on()
-
-        self.ramp_field(0.0, self.bmot_current, self.bmot_ramp_duration)
-        delay(self.bmot_load_duration)
-        self.ramp_field(self.bmot_current, 0.0, self.bmot_ramp_duration)
-
-        # turn off 3D, and repumps
-        self.aom_3D_blue.sw.off()
-        self.aom_3P0.sw.off()
-        self.aom_3P2.sw.off()
-        self.atom_source_off()
-
-    @kernel
-    def bMOT_load(self):
-        """
-        Load atoms into the blue MOT.  This is a blocking call that will hold for the duration of the load.
-        """
-        self.atom_source_on() # turn all lasers on
-        self.aom_3D_blue.sw.on()
-        self.aom_3P0.sw.on()
-        self.aom_3P2.sw.on()
-
-        self.set_current_dir(0) # ramp current up
-        self.ramp_field(0.0, self.bmot_current, self.bmot_ramp_duration)
-
-        delay(self.bmot_load_duration) # hold for load duration
-
-    @kernel
-    def rmot_pulse_drg(self, sf=False, dipole_on=True):
-        self.atom_source_on()  # opens on zeeman and 2D shutters
-        self.close_688()  # close 688 shutter to prevent leakage from optical pumping
-        self.aom_3D_blue.set_att(self.atten_3D)
-        self.aom_3D_red.set_att(self.atten_3D_red)
-        self.aom_3D_red.set_amplitude(0.8)
-
-        # turn on 3D, and repumps
-        self.aom_3D_blue.sw.on()
-        self.aom_3P0.sw.on()
-        self.aom_3P2.sw.on()
-        self.aom_3D_red.sw.off()
-
-        # turn to MOT mode
-        self.set_current_dir(0)
-
-        # ramp up bmot bfield (DMA) and hold for load duration
-        self.core_dma.playback("field_blue_up")
-        delay(self.bmot_load_duration)
-
-       # line trigger for consistent time relative to mains
-        self.line_trigger()
-
-        delay(5*us)
-        self.aom_3D_red.sw.on()
-
-        # ramp up blue MOT current + blue attenuation together (DMA)
-        self.core_dma.playback("field_blue_load")
-
-        # turn off blue light
-        self.atom_source_off()
-        self.aom_3D_blue.sw.off()
-        delay(0.5*us)
-
-        # ramp up to broad band red mot current and hold (DMA)
-        self.core_dma.playback("field_to_bb")
-        delay(self.rmot_bb_duration)
-
-        # turn off repumpers
-        self.aom_3P0.sw.off()
-        self.aom_3P2.sw.off()
-
-        # rmot compression: coil field + attenuation VVA + DRG frequency sweep (DMA)
-        self.core_dma.playback("rmot_ramp")
-
-        # hold in single frequency mode
-        if sf:
-            delay(self.rmot_sf_duration)
-        self.aom_3D_red.sw.off()
-        delay(10*us)  #Makes sure that the aom is fully switched off before the magnetic field ramps down.
-        self.urukul1_cpld.set_profile(0)
-
-        if dipole_on == True:
-            self.core_dma.playback("field_sf_down")  # rmot_sf_current -> 0 (DMA)
-        else:
-            self.coils_off()
-
-        self.open_688()  # open 688 shutter to allow for excitation
-
+    
     @kernel
     def molasses_pulse(self, freq=179*MHz, amp=0.1, t=40*ms):
         raise Exception("molasses_pulse() is not implemented yet.  Please implement it in CoolingClass.py")
@@ -591,3 +424,201 @@ class _Cooling(EnvExperiment):
         # turn aom back to default settings for MOT loading
         self.aom_3D_blue.set(frequency=self.freq_3D, amplitude=0.8)
         self.aom_3D_blue.set_att(self.atten_3D)
+
+
+    ## ---- internal prepare methods
+    def _prepare_rmot_ramp(self):
+        """Precompute the rmot compression sweep: DRG limits/steps and the attenuation
+        and coil-field DAC ramps that record_rmot_ramp() bakes into one DMA trace."""
+        n = int(self.rmot_ramp_duration / RMOT_SWEEP_DT)  # ~100us step size
+        dt = self.rmot_ramp_duration / n
+
+        x = np.linspace(0, 1, n)            # 0 at the start, 1 at the end
+
+        # frequency span -> DRG limits and step words
+        span = (self.freq_high - self.freq_low_i) + (self.freq_low_i - self.freq_low_f)*shape(self.shape_freq, x, self.ramp_tau)
+        span_ftw = [self.urukul_channels[0].frequency_to_ftw(s) for s in span]
+
+        upper = self.urukul_channels[0].frequency_to_ftw(self.freq_high)
+        step_up = [int(np.round(s * self.rmot_scan_frequency * 4e-9 * RATE_WORD)) for s in span_ftw]
+
+        # zotino sweep values (attenuation VVA and coil field, both DAC volts)
+        volts_atten = self.atten_ramp_i + (self.atten_ramp_f - self.atten_ramp_i)*shape(self.shape_atten, x, self.ramp_tau)
+        volts_field = self.rmot_bb_current + (self.rmot_sf_current - self.rmot_bb_current)*shape('lin', x)
+
+        self.upper   = int32(upper)
+        self.lower   = [int32(upper - v) for v in span_ftw]
+        self.step_up = [int32(v) for v in step_up]
+        self.step_dn = [int32(v) for v in span_ftw]
+
+        self.atten_dac_mu = [voltage_to_mu(float(v)) for v in volts_atten]
+        self.field_dac_mu = [voltage_to_mu(float(v)) for v in volts_field]
+
+        self.rmot_n     = n
+        self.rmot_dt_mu = self.core.seconds_to_mu(dt)
+
+    def _prepare_coils(self):
+        # one-off (non-DMA) ramp: normalized 0->1 shape, scaled in-kernel by ramp_field()
+        self.ramp_norm = [float(v) for v in
+                        shape('blackman', np.linspace(0, 1, ARB_RAMP_NPOINTS), self.ramp_tau)]
+
+        # precomputed DMA coil-field ramps for the rmot pulse (recorded once, played every shot)
+        self.blue_up_mu   = self._build_field_ramp(0.0,                      self.bmot_current,        self.bmot_ramp_duration, FIELD_RAMP_DT, "blackman")
+        self.blue_load_mu = self._build_field_ramp(self.bmot_current,        self.bmot_current + BINC, BLUE_TRANSFER_TIME,      FIELD_RAMP_DT, "lin")
+        self.to_bb_mu     = self._build_field_ramp(self.bmot_current + BINC, self.rmot_bb_current,     TO_BB_TIME,              FIELD_RAMP_DT, "blackman")
+        self.sf_down_mu   = self._build_field_ramp(self.rmot_sf_current,     0.0,                      SF_DOWN_TIME,            FIELD_RAMP_DT, "blackman")
+
+        # blue AOM attenuation ramped alongside the blue_load field ramp (same point count)
+        self.blue_att_db  = [float(a) for a in np.linspace(6.0, 30.0, len(self.blue_load_mu))]
+
+    def _build_field_ramp(self, start, end, time, dt, shape_kind):
+        """Host: build a coil-field ramp as a list of DAC machine units.
+
+        The coil setpoint IS a DAC voltage, so values map through voltage_to_mu
+        (no current<->voltage conversion). The array length (int(time/dt)) is the
+        single source of truth for the recorder's timing.
+        """
+        n = int(time / dt)
+        x = np.linspace(0, 1, n)
+        v = start + (end - start) * shape(shape_kind, x, self.ramp_tau)   # setpoint = DAC volts
+        assert v.max() <= MAX_CURRENT and v.min() >= -1e-10, "field ramp setpoint out of range [0, MAX_CURRENT]" # eps=1e-10 for floating point error
+        return [voltage_to_mu(float(vi)) for vi in v]
+
+    
+
+
+    ## ---- internal init methods
+    @kernel
+    def _init_ttls(self):
+        # add channels as needed
+        self.ttl1.input()
+        self.ttl5.output()
+        self.ttl7.output()
+        self.core.break_realtime()
+
+    @kernel
+    def _init_coils(self):
+        self.zotino0.init()  # initialize DAC that controls setpoint
+        delay(5*ms)
+        self.ttl7.off()  # puts in MOT config
+        self.core.break_realtime()
+
+    @kernel
+    def _init_aoms(self, switches=0x0):
+        delay(5*ms)
+        self.dds.init_aoms(switches)
+        self.core.break_realtime()
+        delay(5*ms)
+
+        self.aom_3D_red.set(self.freq_low_i, amplitude=self.scale_3D_red)   # sets ASF; FTW from DRG
+        self.zotino0.write_dac_mu(ATTEN_RAMP_DAC,  self.atten_dac_mu[0])  # sets initial attenuation for red MOT
+        self.zotino0.load()
+
+        self.set_sweep(0, init=True)  # starts red mot sweep at initial depth, init to config CFR2
+        self.core.break_realtime()
+
+    @kernel
+    def _dma_record(self):
+        # record every repeated rmot-pulse DMA trace once (DRG must be initialised first)
+        self.record_rmot_ramp()
+        self.record_field_ramps()
+        self.core.break_realtime()
+        
+
+    ## ---------- DMA RECORDING (kernel)
+    @kernel
+    def set_sweep(self, i, init=False, REG_LIMIT=0x0B, REG_STEP=0x0C, REG_RATE=0x0D, REG_CFR2=0x01, CFR2_RUN=0x010F0020):
+        """
+        Set the DRG sweep parameters for the i-th point in the ramp.
+        If init is True, also set the CFR2 register to start the sweep.
+        Only needs to be used at the start of the ramp, since the DRG will continue to sweep until the next update.
+        """
+        self.aom_3D_red.write64(REG_LIMIT, self.upper, self.lower[i]) # update sweep params
+        self.aom_3D_red.write64(REG_STEP, self.step_dn[i], self.step_up[i])
+
+        if init:
+            self.aom_3D_red.write32(REG_RATE, self.rate)  # if first time initialize sweep params
+            self.aom_3D_red.write32(REG_CFR2, CFR2_RUN)
+
+        self.aom_3D_red.cpld.io_update.pulse_mu(8) # update once at the end
+
+    @kernel
+    def record_rmot_ramp(self):
+        """Compression sweep: attenuation VVA + coil field + DRG frequency sweep in one trace."""
+        with self.core_dma.record("rmot_ramp"):
+            t = now_mu()
+            for i in range(self.rmot_n):
+                at_mu(t)
+
+                self.zotino0.write_dac_mu(ATTEN_RAMP_DAC, self.atten_dac_mu[i])
+                self.zotino0.write_dac_mu(BFIELD_DAC,     self.field_dac_mu[i])
+                self.zotino0.load()
+
+                self.set_sweep(i) # sets the frequency sweep params for the DRG, assumes already running
+
+                t += self.rmot_dt_mu
+            at_mu(t)
+        self.core.break_realtime()
+
+    @kernel
+    def _record_field_ramp(self, name, ramp_mu, duration):
+        """Record a single-channel coil-field DMA ramp (BFIELD_DAC) under `name`.
+
+        The array length is the point count; the step is duration / n so the trace
+        spans exactly `duration`.
+        """
+        n = len(ramp_mu)
+        dt_mu = self.core.seconds_to_mu(duration / n)
+        with self.core_dma.record(name):
+            t = now_mu()
+            for i in range(n):
+                at_mu(t)
+                self.zotino0.write_dac_mu(BFIELD_DAC, ramp_mu[i])
+                self.zotino0.load()
+                t += dt_mu
+            at_mu(t)
+        self.core.break_realtime()
+
+    @kernel
+    def record_field_ramps(self):
+        """Record the repeated rmot-pulse coil-field ramps into named DMA traces (once, at init)."""
+        n_bramp = len(self.blue_up_mu)
+        blue_down_mu = [self.blue_up_mu[n_bramp-i-1] for i in range(n_bramp)]
+        
+        self._record_field_ramp("field_blue_up", self.blue_up_mu, self.bmot_ramp_duration)
+        self._record_field_ramp("field_blue_down", blue_down_mu, self.bmot_ramp_duration)
+        self._record_field_ramp("field_to_bb",   self.to_bb_mu,   TO_BB_TIME)
+        self._record_field_ramp("field_sf_down", self.sf_down_mu, SF_DOWN_TIME)
+
+        # blue capture ramp: coil current + blue AOM attenuation baked into one trace
+        n = len(self.blue_load_mu)
+        dt_mu = self.core.seconds_to_mu(BLUE_TRANSFER_TIME / n)
+        with self.core_dma.record("field_blue_load"):
+            t = now_mu()
+            for i in range(n):
+                at_mu(t)
+                self.zotino0.write_dac_mu(BFIELD_DAC, self.blue_load_mu[i])
+                self.zotino0.load()
+                self.aom_3D_blue.set_att(self.blue_att_db[i])
+                t += dt_mu
+            at_mu(t)
+        self.core.break_realtime()
+
+    @kernel
+    def ramp_field(self, start, end, time, kind="blackman"):
+        """One-off (non-DMA), coil-field ramp for arbitrary ramps.
+
+        Scales the normalized shape precomputed in _prepare_coils() by the endpoints, so
+        start/end/time are fully runtime-flexible. Use the DMA traces for the repeated
+        rmot-pulse ramps instead (see record_field_ramps).
+        """
+        assert (start >= 0.0) and (end >= 0.0) and (start <= MAX_CURRENT) and (end <= MAX_CURRENT)
+        dt = time / (ARB_RAMP_NPOINTS - 1)
+        for step in range(ARB_RAMP_NPOINTS):
+            if kind == "blackman":
+                self.set_current(start + (end - start) * self.ramp_norm[step])
+            elif kind == 'lin':
+                self.set_current(start + (end - start) * step / (ARB_RAMP_NPOINTS - 1))
+            else:
+                raise Exception("Invalid ramp kind for ramp_field()")
+            delay(dt)

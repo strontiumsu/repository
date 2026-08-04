@@ -19,15 +19,16 @@ class Red_MOT_pulse_exp(EnvExperiment):
     def build(self):
         self.setattr_device("core")
         self.setattr_device("scheduler")
+
         self.MOTs = _Cooling(self)
         self.Camera = _Camera(self)
         
-        self.setattr_device("ttl5") # triggering pulse
+        self.setattr_device("ttl5") # timing pulse
 
 
         # attributes for this experiment
         self.setattr_argument("pulses", NumberValue(5,min=0, max=100), "parameters")
-        self.setattr_argument("wait_time", NumberValue(1000.0*1e-3,min=0.0*1e-3,max=9000.00*1e-3,scale=1e-3,
+        self.setattr_argument("wait_time", NumberValue(50.0*1e-3,min=0.0*1e-3,max=9000.00*1e-3,scale=1e-3,
                       unit="ms"),"parameters")
         self.setattr_argument("broadband",BooleanValue(False),"parameters")
 
@@ -35,49 +36,35 @@ class Red_MOT_pulse_exp(EnvExperiment):
 
 
     def prepare(self):
-        # initial datasets for the aoms and mot coils, does not run on core
-        self.MOTs.prepare_aoms()
-        self.MOTs.prepare_coils()
-        # Initialize camera
+        self.MOTs.prepare_cooling()
         self.Camera.camera_init(N=int(self.pulses) + 1)
               
         
     @kernel
-    def runp(self):
+    def run(self):
         self.core.reset()
-
-        self.MOTs.init_coils()
-        self.MOTs.init_ttls()
-        self.MOTs.init_aoms()
+        self.MOTs.init_cooling()
         delay(10*ms)
 
         self.MOTs.take_background_image_exp(self.Camera)
 
-        self.MOTs.AOMs_off_all()
-        self.MOTs.atom_source_off()
-        self.core.break_realtime()
-        delay(10*ms)
 
         for _ in range(int(self.pulses)):
-            self.MOTs.rmot_pulse_drg()
+            self.MOTs.rmot_pulse()
 
             delay(self.wait_time)
-
             self.MOTs.take_MOT_image(self.Camera)
-            delay(10*ms)
+            
 
             # always use this block to readout images
+            delay(10*ms)
             self.core.wait_until_mu(now_mu())
             self.Camera.process_image(bg_sub=True)
             self.core.break_realtime()
 
             delay(10*ms)
 
-            # turn off aoms
-            self.MOTs.AOMs_off_all()
-            delay(50*ms)
 
-        delay(20*ms)
         self.MOTs.AOMs_on_all()
         self.MOTs.atom_source_on()
 
