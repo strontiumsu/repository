@@ -1,0 +1,14 @@
+{
+  "_comment": "Stage 2: broadband red MOT + ramp-to-broadband timing. Run AFTER stage 1, with stage-1 winners set as the GUI defaults (so they carry as the fixed base). Bounds are FILLERS bracketing GUI defaults — tighten to safe ranges.",
+  "_units": "freq_* in Hz, atten_ramp_i in DAC volts (0-9.99), rmot_bb_current in A (<7), rmot_bb_duration and to_bb_time in seconds",
+  "stage_name": "stage2",
+  "controller_type": "gaussian_process",
+  "cost_has_noise": true,
+  "max_num_runs":100,
+  "response_timeout_s": 3600.0,
+
+  "param_names":  ["rmot_bb_current", "rmot_bb_duration", "freq_high", "freq_low_i", "atten_ramp_i", "to_bb_time"],
+  "first_params": [0.40,              50.0e-3,            180.5e6,     174.0e6,      9.99,           15.0e-3],
+  "min_boundary": [0.20,              10.0e-3,            179.5e6,     170.0e6,      6.00,            5.0e-3],
+  "max_boundary": [1.00,             150.0e-3,            182.0e6,     179.0e6,      9.99,           40.0e-3]
+}

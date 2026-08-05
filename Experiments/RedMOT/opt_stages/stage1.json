@@ -1,0 +1,15 @@
+{
+  "_comment": "Stage 1: red-MOT compression + single-frequency hold + red MOT beam power. Biggest lever on final T and lattice loading. Bounds below are FILLERS bracketing the current GUI defaults — tighten to SAFE hardware ranges before running. Order of param_names MUST match min/max/first arrays.",
+  "_units": "freq_* in Hz, atten_ramp_f in DAC volts (0-9.99), rmot_sf_current in A (<7), durations in seconds, atten_3D_red in dB (1-30)",
+  "_note": "freq_low_f (sweep endpoint, the compressed 'bottom') is capped at freq_high (180.5e6, fixed in this stage) — going above inverts the compression sweep. If you tune freq_high in another stage, keep freq_low_f <= freq_high.",
+  "stage_name": "stage1",
+  "controller_type": "gaussian_process",
+  "cost_has_noise": true,
+  "max_num_runs": 100,
+  "response_timeout_s": 200.0,
+
+  "param_names":  ["freq_low_f",   "atten_ramp_f", "rmot_sf_current", "rmot_ramp_duration", "rmot_sf_duration", "atten_3D_red"],
+  "first_params": [180.0e6,        0.10,           2.00,              85.0e-3,              25.0e-3,            9.00],
+  "min_boundary": [178.0e6,        0.05,           1.00,              40.0e-3,               5.0e-3,            7.00],
+  "max_boundary": [180.5e6,        8.00,           3.00,             150.0e-3,              80.0e-3,           20.00]
+}

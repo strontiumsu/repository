@@ -4,7 +4,19 @@
 *.npy
 *.log
 .aux
-.claude 
+.claude
 .vscode
 
+# Transfer optimizer: runtime handshake + checkpoint artifacts (never commit)
+Experiments/RedMOT/_dry/
+Experiments/RedMOT/_stub_handshake/
+Experiments/RedMOT/_stub_checkpoint/
+request.json
+response_*.json
+progress_*.jsonl
+best_params_*.json
+mloop_best_*.json
+controller_archive_*
+learner_archive_*
+M-LOOP_archives/
 
