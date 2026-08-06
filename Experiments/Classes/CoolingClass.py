@@ -108,12 +108,16 @@ class _Cooling(EnvExperiment):
                             NumberValue(2.0, min=0.0, max=7.0,unit="A"), "Red MOT")  # single frequency mot current
         self.setattr_argument("rmot_sf_duration",
                             NumberValue(25.0*1e-3, min=0.0*1e-3, max=300.0*1e-3, scale=1e-3, unit="ms"), "Red MOT")  # how long to hold atoms in sf red mot
-        self.setattr_argument("freq_high",
+        # top of the modulation-depth sweep: linearly swept between these two
+        self.setattr_argument("freq_high_i",
                             NumberValue(180.5*1e6, min=10.0*1e6, max=200.0*1e6, scale=1e6, unit="MHz", ndecimals=3), "Red MOT")
-        self.setattr_argument("freq_low_i",
-                            NumberValue(174.0*1e6, min=10.0*1e6, max=200.0*1e6, scale=1e6, unit="MHz", ndecimals=3), "Red MOT")
-        self.setattr_argument("freq_low_f",
+        self.setattr_argument("freq_high_f",
                             NumberValue(180.0*1e6, min=10.0*1e6, max=200.0*1e6, scale=1e6, unit="MHz", ndecimals=3), "Red MOT")
+        # modulation depth (span below the top): shaped ramp between these two
+        self.setattr_argument("span_i",
+                            NumberValue(6.0*1e6, min=0.0, max=100.0*1e6, scale=1e6, unit="MHz", ndecimals=3), "Red MOT")
+        self.setattr_argument("span_f",
+                            NumberValue(1.1*1e6, min=0.0, max=100.0*1e6, scale=1e6, unit="MHz", ndecimals=3), "Red MOT")
         self.setattr_argument("shape_freq",
                             EnumerationValue(["lin", "smooth", "exp", "expinv", "quad", "sqrt"], default="lin"), "Red MOT")
         self.setattr_argument("shape_atten",
@@ -143,7 +147,7 @@ class _Cooling(EnvExperiment):
 
         ## ------------- STATE INITIALISED BY prepare_*()
         # rmot compression sweep: DRG limits/steps + attenuation & field DAC ramps
-        self.upper         = int32(0)    # DRG upper frequency limit (FTW)
+        self.upper         = [int32(0)]  # DRG upper frequency limit (FTW) per point
         self.lower         = [int32(0)]  # DRG lower frequency limit per point
         self.step_up       = [int32(0)]  # DRG up-slope step word per point
         self.step_dn       = [int32(0)]  # DRG down-slope step word per point
@@ -211,6 +215,7 @@ class _Cooling(EnvExperiment):
     @kernel
     def rmot_pulse(self, sf=False, dipole_on=True):
         self.AOMs_off_all()
+        self.set_sweep(0)
 
         # ensure powers at at correct power
         self.aom_3D_blue.set_att(self.atten_3D)
@@ -435,19 +440,22 @@ class _Cooling(EnvExperiment):
 
         x = np.linspace(0, 1, n)            # 0 at the start, 1 at the end
 
-        # frequency span -> DRG limits and step words
-        span = (self.freq_high - self.freq_low_i) + (self.freq_low_i - self.freq_low_f)*shape(self.shape_freq, x, self.ramp_tau)
+        # top of the sweep: linear ramp between freq_high_i and freq_high_f
+        upper_freq = np.linspace(self.freq_high_i, self.freq_high_f, n)
+        upper_ftw = [self.urukul_channels[0].frequency_to_ftw(f) for f in upper_freq]
+
+        # modulation depth (span below the top): shaped ramp between span_i and span_f
+        span = self.span_i + (self.span_f - self.span_i)*shape(self.shape_freq, x, self.ramp_tau)
         span_ftw = [self.urukul_channels[0].frequency_to_ftw(s) for s in span]
 
-        upper = self.urukul_channels[0].frequency_to_ftw(self.freq_high)
         step_up = [int(np.round(s * self.rmot_scan_frequency * 4e-9 * RATE_WORD)) for s in span_ftw]
 
         # zotino sweep values (attenuation VVA and coil field, both DAC volts)
         volts_atten = self.atten_ramp_i + (self.atten_ramp_f - self.atten_ramp_i)*shape(self.shape_atten, x, self.ramp_tau)
         volts_field = self.rmot_bb_current + (self.rmot_sf_current - self.rmot_bb_current)*shape('lin', x)
 
-        self.upper   = int32(upper)
-        self.lower   = [int32(upper - v) for v in span_ftw]
+        self.upper   = [int32(u) for u in upper_ftw]
+        self.lower   = [int32(upper_ftw[i] - span_ftw[i]) for i in range(n)]
         self.step_up = [int32(v) for v in step_up]
         self.step_dn = [int32(v) for v in span_ftw]
 
@@ -510,7 +518,7 @@ class _Cooling(EnvExperiment):
         self.core.break_realtime()
         delay(5*ms)
 
-        self.aom_3D_red.set(self.freq_low_i, amplitude=self.scale_3D_red)   # sets ASF; FTW from DRG
+        self.aom_3D_red.set(self.freq_high_i, amplitude=self.scale_3D_red)   # sets ASF; FTW from DRG
         self.zotino0.write_dac_mu(ATTEN_RAMP_DAC,  self.atten_dac_mu[0])  # sets initial attenuation for red MOT
         self.zotino0.load()
 
@@ -533,7 +541,7 @@ class _Cooling(EnvExperiment):
         If init is True, also set the CFR2 register to start the sweep.
         Only needs to be used at the start of the ramp, since the DRG will continue to sweep until the next update.
         """
-        self.aom_3D_red.write64(REG_LIMIT, self.upper, self.lower[i]) # update sweep params
+        self.aom_3D_red.write64(REG_LIMIT, self.upper[i], self.lower[i]) # update sweep params
         self.aom_3D_red.write64(REG_STEP, self.step_dn[i], self.step_up[i])
 
         if init:
