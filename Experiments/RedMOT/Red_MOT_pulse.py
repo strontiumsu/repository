@@ -54,6 +54,7 @@ class Red_MOT_pulse_exp(EnvExperiment):
 
 
         for _ in range(int(self.pulses)):
+            self.ttl5.pulse(1*ms)
             self.MOTs.rmot_pulse()
 
             delay(self.wait_time)

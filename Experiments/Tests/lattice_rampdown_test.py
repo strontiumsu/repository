@@ -11,42 +11,33 @@ Nothing else.
 
 from artiq.experiment import *
 
-from BraggClass import _Bragg
+
 
 
 class LatticeRampdownTest(EnvExperiment):
 
     def build(self):
         self.setattr_device("core")
-        
+        self.setattr_device("zotino0")
         self.setattr_device("ttl5")          # scope trigger
-        self.Bragg = _Bragg(self)
 
-    def prepare(self):
-        self.Bragg.prepare_aoms()
+        self.setattr_argument("volt",
+                            NumberValue(9.9, ndecimals=2, step=0.01, min=0.01, max=9.99))
+
 
 
     @kernel
     def run(self):
         self.core.reset()
-        self.Bragg.dac_0.init()
-        self.Bragg.init_aoms(switches=0x9)  # Dipole + Lattice on
+        self.zotino0.init()
+        delay(100*ms)
+        self.ttl5.pulse(10*us)
+        self.zotino0.write_dac(6, self.volt)  # write values without updating
+        self.zotino0.load()  # update all at once
 
-        delay(1*ms)
-
-        self.ttl5.on()
-        self.Bragg.dipole_rampdown()
-        self.ttl5.off()
-        delay(1*ms)
-        self.ttl5.on()
-        self.Bragg.dipole_rampup()
-        delay(1*ms)
-        self.ttl5.off()
+        delay(100*ms)
+        self.zotino0.write_dac(6, 9.99)  # write values without updating
+        self.zotino0.load()  # update all at once
         
-
-
-
-
-        self.Bragg.dac_set(6, 9.99)
 
         
