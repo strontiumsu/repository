@@ -251,6 +251,8 @@ class _Cooling(EnvExperiment):
         # the re-recordable "rmot_sf" DMA trace (freq/atten/duration baked in).
         self.AOMs_off_all()
         self.set_sweep(0, init=True)  # re-arm the DRG (disabled by the sf trace last pulse)
+        self.core.break_realtime()
+        delay(10*ms)
 
         # ensure powers at at correct power
         self.aom_3D_blue.set_att(self.atten_3D)
@@ -267,6 +269,7 @@ class _Cooling(EnvExperiment):
         self.aom_3D_red.sw.off()
 
         # ramp up bmot bfield and hold for load duration
+        self.ttl5.pulse(1*ms)
         self.core_dma.playback("field_blue_up")
         delay(self.bmot_load_duration)
 
@@ -298,7 +301,6 @@ class _Cooling(EnvExperiment):
         # single-frequency compression stage (DRG off, stepped freq + Urukul atten)
         self.core_dma.playback("rmot_sf")
         self.aom_3D_red.sw.off()
-        self.ttl5.pulse(1*us)
         delay(2.0*us)  # ensure light is off before field ramp down
 
         if dipole_on == True:
@@ -583,9 +585,34 @@ class _Cooling(EnvExperiment):
 
     @kernel
     def _dma_record(self):
-        # record every repeated rmot-pulse DMA trace once (DRG must be initialised first)
+        # Record EVERY repeated rmot-pulse DMA trace ONCE, at init (DRG must be
+        # initialised first). The static blue field ramps are laid down first so
+        # they sit at the bottom of the core-device DMA heap and are never
+        # touched again; the dynamic traces go on top so the per-shot optimizer
+        # path (_dma_record_dynamic) can recycle exactly that top region.
+        self.record_field_ramps_static()
         self.record_rmot_ramp()
-        self.record_field_ramps()
+        self.record_field_ramps_dynamic()
+        self.record_sf_stage_arg(self.sf_ftw, self.sf_atten_db, self.sf_asf,
+                                 self.sf_n, self.sf_dt_mu)
+        self.core.break_realtime()
+
+    @kernel
+    def _dma_record_dynamic(self):
+        # Per-shot re-record of ONLY the traces whose parameters change between
+        # optimizer candidates (rmot_ramp, field_to_bb, field_sf_down, rmot_sf).
+        # Erase each BEFORE re-recording: this frees last shot's SDRAM buffer
+        # before the new (variable-size) one is allocated. Re-recording every
+        # shot WITHOUT erasing churns and fragments the core-device SDRAM until
+        # the runtime OOM-panics and the Kasli stops answering the network (only
+        # a power-cycle clears it). The static blue field ramps recorded in
+        # init_cooling are left untouched, so the freed region is reused in place.
+        self.core_dma.erase("rmot_ramp")
+        self.core_dma.erase("field_to_bb")
+        self.core_dma.erase("field_sf_down")
+        self.core_dma.erase("rmot_sf")
+        self.record_rmot_ramp()
+        self.record_field_ramps_dynamic()
         self.record_sf_stage_arg(self.sf_ftw, self.sf_atten_db, self.sf_asf,
                                  self.sf_n, self.sf_dt_mu)
         self.core.break_realtime()
@@ -671,15 +698,16 @@ class _Cooling(EnvExperiment):
         self.core.break_realtime()
 
     @kernel
-    def record_field_ramps(self):
-        """Record the repeated rmot-pulse coil-field ramps into named DMA traces (once, at init)."""
+    def record_field_ramps_static(self):
+        """Record the INVARIANT blue-stage coil-field ramps (field_blue_up/down/
+        load). These depend only on bmot_*/blue_* settings, none of which the
+        optimizer sweeps, so they are recorded ONCE at init and never re-recorded
+        per shot (keeping them out of the per-shot SDRAM churn)."""
         n_bramp = len(self.blue_up_mu)
         blue_down_mu = [self.blue_up_mu[n_bramp-i-1] for i in range(n_bramp)]
-        
+
         self._record_field_ramp("field_blue_up", self.blue_up_mu, self.bmot_ramp_duration)
         self._record_field_ramp("field_blue_down", blue_down_mu, self.bmot_ramp_duration)
-        self._record_field_ramp("field_to_bb",   self.to_bb_mu,   self.to_bb_time)
-        self._record_field_ramp("field_sf_down", self.sf_down_mu, SF_DOWN_TIME)
 
         # blue capture ramp: coil current + blue AOM attenuation baked into one trace
         n = len(self.blue_load_mu)
@@ -693,6 +721,15 @@ class _Cooling(EnvExperiment):
                 self.aom_3D_blue.set_att(self.blue_att_db[i])
                 t += dt_mu
             at_mu(t)
+        self.core.break_realtime()
+
+    @kernel
+    def record_field_ramps_dynamic(self):
+        """Record the coil-field ramps that DO change per optimizer candidate:
+        field_to_bb (endpoint follows rmot_bb_current) and field_sf_down (start
+        follows rmot_sf_current). Re-recorded every shot via _dma_record_dynamic()."""
+        self._record_field_ramp("field_to_bb",   self.to_bb_mu,   self.to_bb_time)
+        self._record_field_ramp("field_sf_down", self.sf_down_mu, SF_DOWN_TIME)
         self.core.break_realtime()
 
     @kernel

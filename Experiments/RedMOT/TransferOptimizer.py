@@ -45,7 +45,7 @@ from pathlib import Path
 import numpy as np
 
 from artiq.experiment import (  # pyright: ignore[reportMissingImports]
-    EnvExperiment, kernel, delay, ms, now_mu, TInt32,
+    EnvExperiment, kernel, delay, ms, now_mu, TInt32, StringValue
 )
 
 from CoolingClass import _Cooling  # pyright: ignore[reportMissingImports]
@@ -57,16 +57,14 @@ from BraggClass import _Bragg      # pyright: ignore[reportMissingImports]
 # CONFIG — operational settings (edit here; not optimized)
 # =========================================================================
 # Dirs MUST match the --handshake / --checkpoint flags passed to mloop_optimize.py.
-HANDSHAKE_DIR   = r"C:\Users\sr\Documents\Artiq\ARTIQ_opt"
-CHECKPOINT_DIR  = r"C:\Users\sr\Documents\Artiq\ARTIQ_opt"
-STAGE_NAME      = "red_mot"     # names the checkpoint / progress files
-BRAGG_SWITCHES  = 0x9           # dipole (bit0) + lattice (bit3) on for the shot
+HANDSHAKE_DIR   = r"C:\Users\sr\Documents\Artiq\ARTIQ_opt\handshake"
+CHECKPOINT_DIR  = r"C:\Users\sr\Documents\Artiq\ARTIQ_opt\checkpoint"
 
 REFERENCE_EVERY_N   = 5         # take an interleaved reference shot every N candidates
-DRIFT_THRESHOLD_PCT = 15.0      # pause if the reference EMA drifts beyond this
+DRIFT_THRESHOLD_PCT = 25.0      # pause if the reference EMA drifts beyond this
 REF_SETTLE_SHOTS    = 3         # baseline reference shots at start
 CAMERA_REARM_CHUNK  = 50        # re-arm the camera every this many frames
-IDLE_TIMEOUT_S      = 600.0     # stop if no request arrives for this long
+IDLE_TIMEOUT_S      = 100.0     # stop if no request arrives for this long
 POLL_S              = 0.05      # request-poll interval
 PAUSE_POLL_S        = 2.0       # reference-poll interval while paused on drift
 
@@ -97,7 +95,7 @@ DEFAULTS = {
     "span_i":              6.0e6,     # modulation depth below the top, start
     "span_f":              1.1e6,     # modulation depth, end
     "atten_ramp_i":        9.99,      # VVA (external) atten ramp, start (DAC V)
-    "atten_ramp_f":        0.10,      # VVA atten ramp, end
+    "atten_ramp_f":        5.0,      # VVA atten ramp, end
     "ramp_tau":            0.5,       # shape time-constant for exp/expinv shapes
     "rmot_scan_frequency": 30e3,      # DRG modulation frequency
     "rmot_ramp_duration":  85e-3,
@@ -109,7 +107,7 @@ DEFAULTS = {
     "rmot_sf_freq_f":      180.0e6,
     "rmot_sf_atten_i":     9.0,       # dB
     "rmot_sf_atten_f":     9.0,       # dB
-    "rmot_sf_duration":    25e-3,
+    "rmot_sf_duration":    1e-3,
     # --- Beam power + imaging ---
     "atten_3D":            6.0,       # 3D blue AOM atten (dB)
     "atten_3D_red":        9.0,       # 3D red AOM atten (dB)
@@ -117,7 +115,7 @@ DEFAULTS = {
     "f_MOT3D_detect":      180.0e6,   # 3D blue imaging frequency
     "Detection_pulse_time": 0.02e-3,  # imaging pulse length
     # --- Optimizer shot ---
-    "hold_time":           30e-3,     # shallow-lattice hold: hot atoms escape (the T proxy)
+    "hold_time":           0e-3,     # shallow-lattice hold: hot atoms escape (the T proxy)
 }
 
 
@@ -156,7 +154,6 @@ def _max_index(progress_path, key, default):
 
 
 class TransferOptimizer_exp(EnvExperiment):
-
     # ------------------------------------------------------------------
     # build — devices + child controllers + operational config
     # ------------------------------------------------------------------
@@ -170,9 +167,11 @@ class TransferOptimizer_exp(EnvExperiment):
         self.Bragg = _Bragg(self)     # only to init the lattice/dipole AOMs on
         self.Camera = _Camera(self)
 
+        self.setattr_argument("stage", StringValue("red_mot"))
+
         # operational config (edit the CONFIG block above). Kept as plain
         # attributes so the M-LOOP server helpers can read self.<name>.
-        self.stage_name = STAGE_NAME
+        self.stage_name = self.stage
         self.handshake_dir = HANDSHAKE_DIR
         self.checkpoint_dir = CHECKPOINT_DIR
         self.reference_every_N = REFERENCE_EVERY_N
@@ -235,11 +234,15 @@ class TransferOptimizer_exp(EnvExperiment):
     @kernel
     def _shot_kernel(self) -> TInt32:
         # lattice/dipole are already on (from init_all); rmot_pulse loads into them.
-        # _dma_record re-records every trace from the self.MOTs.* arrays just
-        # recomputed by prepare_cooling(). The arrays are read as attributes, NOT
-        # passed as kernel args (a large list argument overflows ARTIQ's debug-info
-        # column limit). This ARTIQ recompiles every kernel call regardless.
-        self.MOTs._dma_record()
+        # _dma_record_dynamic re-records ONLY the traces that change per candidate
+        # (rmot_ramp / rmot_sf / field_to_bb / field_sf_down) from the self.MOTs.*
+        # arrays just recomputed by prepare_cooling(), erasing each first so the
+        # core-device SDRAM is freed before re-allocation (no fragmentation/OOM;
+        # the invariant blue field ramps stay as recorded once in init_cooling).
+        # The arrays are read as attributes, NOT passed as kernel args (a large
+        # list argument overflows ARTIQ's debug-info column limit). This ARTIQ
+        # recompiles every kernel call regardless.
+        self.MOTs._dma_record_dynamic()
         self.MOTs.rmot_pulse()
         delay(self.hold_time)                          # shallow lattice: hot atoms escape
         self.MOTs.take_MOT_image(self.Camera)          # fluorescence imaging
@@ -248,7 +251,7 @@ class TransferOptimizer_exp(EnvExperiment):
         ports = self.Camera.process_image(save=False, bg_sub=True,
                                           return_ports=["lattice"])
         self.core.break_realtime()
-        delay(10 * ms)
+        delay(50 * ms)
         return ports[0]
 
     # ------------------------------------------------------------------
@@ -258,7 +261,7 @@ class TransferOptimizer_exp(EnvExperiment):
     def init_all(self):
         self.core.reset()
         self.MOTs.init_cooling()                       # ttls, coils, aoms, DMA record
-        self.Bragg.init_aoms(switches=BRAGG_SWITCHES)  # lattice + dipole ON
+        self.Bragg.init_aoms()  # lattice + dipole ON
         delay(10 * ms)
         self.MOTs.take_background_image_exp(self.Camera)
         self.core.break_realtime()

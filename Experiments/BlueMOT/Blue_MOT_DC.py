@@ -18,16 +18,13 @@ class Blue_MOT_DC_exp(EnvExperiment):
 
     def prepare(self):
         # initial datasets for the aoms and mot coils, does not run on core
-        self.MOTs.prepare_aoms()
-        self.MOTs.prepare_coils()
+        self.MOTs.prepare_cooling()
 
     @kernel
     def run(self):
         # initial devices
         self.core.reset()
-        self.MOTs.init_coils()
-        self.MOTs.init_ttls()
-        self.MOTs.init_aoms()
+        self.MOTs.init_cooling()
         delay(10*ms)
 
         # load Blue MOT and leave on

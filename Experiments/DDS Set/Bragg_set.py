@@ -18,10 +18,10 @@ class Bragg_set(EnvExperiment):
         self.bragg=_Bragg(self)
         self.setattr_device("ttl6") # triggering pulse
 
-        self.setattr_argument("Dipole", BooleanValue(False))
+        self.setattr_argument("Dipole", BooleanValue(True))
         self.setattr_argument("Sideband", BooleanValue(False))
         self.setattr_argument("Carrier", BooleanValue(False))
-        self.setattr_argument("Lattice", BooleanValue(False))
+        self.setattr_argument("Lattice", BooleanValue(True))
 
         
 
@@ -32,13 +32,13 @@ class Bragg_set(EnvExperiment):
     def run(self):
         switch_state = ((1<<0 if self.Dipole  else 0) |
                        (1<<1 if self.Sideband  else 0) |
-                       (1<<2 if self.Push  else 0) |
+                       (1<<2 if self.Carrier  else 0) |
                        (1<<3 if self.Lattice else 0) )
         
         
         self.core.reset()
         
-        if self.Push: self.ttl6.on()
+        if self.Carrier: self.ttl6.on()
         self.bragg.init_aoms(switches=switch_state) 
         delay(1*ms)
         

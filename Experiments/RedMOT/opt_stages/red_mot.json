@@ -9,7 +9,7 @@
   "response_timeout_s": 3600.0,
 
   "param_names":  ["rmot_bb_current", "rmot_bb_duration", "freq_high_i", "freq_high_f", "span_i",  "span_f",  "atten_ramp_i", "atten_ramp_f", "ramp_tau", "rmot_scan_frequency", "rmot_ramp_duration", "rmot_sf_current", "rmot_sf_freq_i", "rmot_sf_freq_f", "rmot_sf_atten_i", "rmot_sf_atten_f", "rmot_sf_duration"],
-  "first_params": [0.40,              50.0e-3,            180.5e6,       180.0e6,       6.0e6,     1.1e6,     9.99,           0.10,           0.50,       30.0e3,                85.0e-3,              2.00,             180.0e6,          180.0e6,          9.0,               9.0,               25.0e-3],
-  "min_boundary": [0.20,              10.0e-3,            179.5e6,       179.5e6,       1.0e6,     0.1e6,     6.00,           0.05,           0.05,       10.0e3,                40.0e-3,              1.00,             179.0e6,          179.0e6,          0.0,               0.0,                5.0e-3],
-  "max_boundary": [1.00,             150.0e-3,            182.0e6,       182.0e6,      12.0e6,     6.0e6,     9.99,           8.00,           2.00,      100.0e3,               150.0e-3,              3.00,             181.0e6,          181.0e6,         31.5,              31.5,               80.0e-3]
+  "first_params": [0.40,              50.0e-3,            180.5e6,       180.0e6,       6.0e6,     1.1e6,     9.99,           5.0,           0.50,       30.0e3,                85.0e-3,              2.00,             180.0e6,          180.0e6,          9.0,               9.0,               25.0e-3],
+  "min_boundary": [0.20,              10.0e-3,            179.5e6,       179.5e6,       1.0e6,     0.1e6,     6.00,           0.5,           0.05,       10.0e3,                40.0e-3,              1.00,             179.0e6,          179.0e6,          0.1,               0.0,                0.0e-3],
+  "max_boundary": [0.60,             150.0e-3,            182.0e6,       182.0e6,      12.0e6,     6.0e6,     9.99,           8.00,           2.00,      100.0e3,               150.0e-3,              3.00,             181.0e6,          181.0e6,         31.5,              31.5,               80.0e-3]
 }

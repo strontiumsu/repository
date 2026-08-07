@@ -127,11 +127,7 @@ class ArtiqFileInterface(mli.Interface):
                     except OSError:
                         pass
                 return resp
-            # Startup-order independence: the experiment/stub wipes the handshake
-            # dir when IT starts. If we (the driver) started first, our request gets
-            # deleted; if it vanishes with no response yet, re-send it. A duplicate
-            # seq is ignored by the reader, so re-sending is always safe. This lets
-            # you start the driver and the experiment in EITHER order.
+
             if (not reqpath.exists()) and (time.time() - last_send > resend_interval):
                 self._write_request(seq, pdict, stop=False)
                 last_send = time.time()
@@ -257,27 +253,23 @@ def find_training_archive(checkpoint_dir, stage_name):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--stage", required=True, help="path to opt_stages/<stage>.json")
-    ap.add_argument("--handshake", default=r"<FILL: handshake dir>")
-    ap.add_argument("--checkpoint", default=r"<FILL: checkpoint dir>")
-    ap.add_argument("--no-stop", action="store_true",
+    ap.add_argument("--handshake", default=r"C:/Users/sr/Documents/Artiq/ARTIQ_opt/handshake")
+    ap.add_argument("--checkpoint", default=r"C:/Users/sr/Documents/Artiq/ARTIQ_opt/checkpoint")
+    ap.add_argument("--no-stop", default=False, action="store_true",
                     help="do not signal the experiment to stop when finished")
     ap.add_argument("--plots", default=False, action="store_true",
                     help="show M-LOOP visualizations at the end (blocks until you "
                          "close the windows). Off by default so the run never hangs.")
     args = ap.parse_args()
 
-    # Resolve to absolute paths BEFORE we chdir below (so relative --handshake /
-    # --checkpoint keep working). Load the stage file before chdir too.
+    # Resolve to absolute paths BEFORE we chdir below
     args.handshake = os.path.abspath(args.handshake)
     args.checkpoint = os.path.abspath(args.checkpoint)
 
-    cfg = load_stage(args.stage)
-    stage = cfg["stage_name"]
-    Path(args.checkpoint).mkdir(parents=True, exist_ok=True)
-    # Run from the checkpoint dir so M-LOOP's ./M-LOOP_archives/ is created THERE
-    # deterministically (M-LOOP 3.3.4 ignores archive_dir). This makes warm-start
-    # on a later run independent of where you launch the driver from.
-    os.chdir(args.checkpoint)
+    cfg = load_stage(args.stage)  # configuration params
+    stage = cfg["stage_name"]  # name of stage
+    Path(args.checkpoint).mkdir(parents=True, exist_ok=True) # makes handshake/checkpoints dirs if they do exist
+    os.chdir(args.checkpoint)  # chdir into checkpoint
 
     # start clean: remove stale request/response/control files from a previous or
     # crashed run so seq 0 isn't answered by an old response (checkpoints kept).
@@ -292,13 +284,15 @@ def main():
         except OSError:
             pass
 
+    # all directories have been created and cleaned and args have been parsed    
+
+    # generate mloop optimizer
     interface = ArtiqFileInterface(args.handshake, cfg["param_names"],
                                    response_timeout_s=cfg.get("response_timeout_s", 3600.0))
-    # continue the handshake seq across resumes so request/response ids and the
-    # progress-log 'seq' keep counting up instead of restarting at 0
+    # continue the handshake seq across resumes so request/response ids
     interface.seq = _max_index(Path(args.checkpoint) / "progress_{0}.jsonl".format(stage),
                                "seq", -1) + 1
-    if interface.seq:
+    if interface.seq: # if we start from existing seq #
         print("Continuing from seq", interface.seq)
 
     first_params = maybe_seed_first_params(cfg, args.checkpoint)
@@ -313,8 +307,6 @@ def main():
         max_boundary=cfg["max_boundary"],
         first_params=first_params,
         cost_has_noise=bool(cfg.get("cost_has_noise", True)),
-        # keep all archives with this stage's name in the shared checkpoint dir so
-        # a later run can warm-start (training_filename below)
         archive_dir=args.checkpoint,
         controller_archive_filename="controller_archive_{0}".format(stage),
         learner_archive_filename="learner_archive_{0}".format(stage),
@@ -330,38 +322,10 @@ def main():
 
     def _make(kwargs):
         return mlc.create_controller(interface, controller_type=ctype, **kwargs)
-
-    try:
-        controller = _make(controller_kwargs)
-    except TypeError as e:
-        # M-LOOP versions differ on the archive-naming kwargs; retry with only
-        # the essential, universally-supported ones (still functional, just no
-        # custom archive filenames).
-        print("create_controller rejected a kwarg ({0}); retrying minimal.".format(e))
-        keep = ("max_num_runs", "num_params", "min_boundary", "max_boundary",
-                "first_params", "cost_has_noise", "target_cost", "training_filename")
-        controller_kwargs = {k: controller_kwargs[k] for k in keep if k in controller_kwargs}
-        try:
-            controller = _make(controller_kwargs)
-        except Exception as e2:
-            # most likely the training archive is incompatible -> drop it and go
-            if "training_filename" not in controller_kwargs:
-                raise
-            print("retrying without training_filename ({0})".format(e2))
-            controller_kwargs.pop("training_filename", None)
-            controller = _make(controller_kwargs)
-    except Exception as e:
-        # a bad/incompatible training archive must not prevent starting fresh
-        if "training_filename" not in controller_kwargs:
-            raise
-        print("create_controller failed ({0}); retrying without training_filename."
-              .format(e))
-        controller_kwargs.pop("training_filename", None)
-        controller = _make(controller_kwargs)
-
+    controller = _make(controller_kwargs)
     print("Starting M-LOOP stage '{0}' ({1} params, {2} runs max)".format(
         stage, len(cfg["param_names"]), controller_kwargs["max_num_runs"]))
-    controller.optimize()
+    controller.optimize() # actually run the optimizer
 
     # write best params (names) for this stage
     best = {name: float(v) for name, v in
@@ -370,14 +334,9 @@ def main():
     with open(out, "w") as f:
         json.dump({"stage": stage, "best_cost": float(controller.best_cost),
                    "best_params": best}, f, indent=2)
-    print("Best cost {0:.4g}; wrote {1}".format(float(controller.best_cost), out))
 
-    # optional M-LOOP visualizations (correlations / landscape). Off by default:
-    # show_all_default_visualizations() calls plt.show(), which BLOCKS until you
-    # close the windows and would otherwise stall sending STOP. Pass --plots to see
-    # them; the archives are saved either way so you can plot later.
+
     if args.plots:
-        print('showing')
         try:
             import mloop.visualizations as mlv
             mlv.show_all_default_visualizations(controller)
