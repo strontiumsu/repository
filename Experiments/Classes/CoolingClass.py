@@ -29,6 +29,7 @@ from CoolingDDSClass import _CoolingDDS
 # DRG (frequency sweep) hardware
 RATE_WORD = 8  # sets the speed of the DRG accumulator for the rmot ramps [1, 16]
 RMOT_SWEEP_DT = 100*us  # time step of the rmot compression sweep (sets its point count)
+SF_STEP_DT = 100*us  # time step of the single-frequency compression stage
 
 # coil-field ramp parameters
 FIELD_RAMP_DT      = 50*us   # time step for the DMA coil-field ramps (fine -> many points)
@@ -119,13 +120,26 @@ class _Cooling(EnvExperiment):
         self.setattr_argument("rmot_sf_current",
                             NumberValue(2.0, min=0.0, max=7.0,unit="A"), "Red MOT")  # single frequency mot current
         self.setattr_argument("rmot_sf_duration",
-                            NumberValue(25.0*1e-3, min=0.0*1e-3, max=300.0*1e-3, scale=1e-3, unit="ms"), "Red MOT")  # how long to hold atoms in sf red mot
-        self.setattr_argument("freq_high",
+                            NumberValue(25.0*1e-3, min=0.0*1e-3, max=300.0*1e-3, scale=1e-3, unit="ms"), "Red MOT")  # how long to hold atoms in sf red mot (0 -> minimal sf trace)
+        # top of the modulation-depth sweep: linearly swept between these two
+        self.setattr_argument("freq_high_i",
                             NumberValue(180.5*1e6, min=10.0*1e6, max=200.0*1e6, scale=1e6, unit="MHz", ndecimals=3), "Red MOT")
-        self.setattr_argument("freq_low_i",
-                            NumberValue(174.0*1e6, min=10.0*1e6, max=200.0*1e6, scale=1e6, unit="MHz", ndecimals=3), "Red MOT")
-        self.setattr_argument("freq_low_f",
+        self.setattr_argument("freq_high_f",
                             NumberValue(180.0*1e6, min=10.0*1e6, max=200.0*1e6, scale=1e6, unit="MHz", ndecimals=3), "Red MOT")
+        # modulation depth (span below the top): shaped ramp between these two
+        self.setattr_argument("span_i",
+                            NumberValue(6.0*1e6, min=0.0, max=100.0*1e6, scale=1e6, unit="MHz", ndecimals=3), "Red MOT")
+        self.setattr_argument("span_f",
+                            NumberValue(1.1*1e6, min=0.0, max=100.0*1e6, scale=1e6, unit="MHz", ndecimals=3), "Red MOT")
+        # single-frequency stage: linearly step aom_3D_red frequency and Urukul RF attenuation
+        self.setattr_argument("rmot_sf_freq_i",
+                            NumberValue(180.0*1e6, min=10.0*1e6, max=200.0*1e6, scale=1e6, unit="MHz", ndecimals=3), "Red MOT")
+        self.setattr_argument("rmot_sf_freq_f",
+                            NumberValue(180.0*1e6, min=10.0*1e6, max=200.0*1e6, scale=1e6, unit="MHz", ndecimals=3), "Red MOT")
+        self.setattr_argument("rmot_sf_atten_i",
+                            NumberValue(9.0, min=0.0, max=31.5, unit="dB"), "Red MOT")   # Urukul step attenuator
+        self.setattr_argument("rmot_sf_atten_f",
+                            NumberValue(9.0, min=0.0, max=31.5, unit="dB"), "Red MOT")
         self.setattr_argument("shape_freq",
                             EnumerationValue(["lin", "smooth", "exp", "expinv", "quad", "sqrt"], default="lin"), "Red MOT")
         self.setattr_argument("shape_atten",
@@ -155,7 +169,7 @@ class _Cooling(EnvExperiment):
 
         ## ------------- STATE INITIALISED BY prepare_*()
         # rmot compression sweep: DRG limits/steps + attenuation & field DAC ramps
-        self.upper         = int32(0)    # DRG upper frequency limit (FTW)
+        self.upper         = [int32(0)]  # DRG upper frequency limit (FTW) per point
         self.lower         = [int32(0)]  # DRG lower frequency limit per point
         self.step_up       = [int32(0)]  # DRG up-slope step word per point
         self.step_dn       = [int32(0)]  # DRG down-slope step word per point
@@ -175,11 +189,19 @@ class _Cooling(EnvExperiment):
         # normalized shape for the one-off (non-DMA) ramp_field()
         self.ramp_norm     = [0.0]
 
-    ## ---------- HOST PREPARE 
+        # single-frequency stage: stepped tuning words + Urukul attenuation (built in prepare)
+        self.sf_ftw        = [int32(0)]  # single-frequency stage tuning words
+        self.sf_atten_db   = [0.0]       # single-frequency stage Urukul attenuation (dB)
+        self.sf_asf        = int32(0)    # single-frequency stage amplitude scale factor
+        self.sf_n          = 0           # points in the sf stage
+        self.sf_dt_mu      = int64(0)    # sf stage step (mu)
+
+    ## ---------- HOST PREPARE
     def prepare_cooling(self):
         self.dds.prepare_aoms()
         self._prepare_rmot_ramp()  # writes DMA for rmot broadband compression and field/atten ramps
         self._prepare_coils()      # writes DMAs for current ramps and a blackman profile for any arbitrary ramp
+        self._prepare_sf_stage()   # precomputes the single-frequency stage freq/atten steps
     ## ----------- KERNEL INIT
     @kernel
     def init_cooling(self, switches=0x0):
@@ -221,15 +243,17 @@ class _Cooling(EnvExperiment):
         delay(self.bmot_load_duration) # hold for load duration
     
     @kernel
-    def rmot_pulse(self, sf=False, dipole_on=True, bb_dur=-1.0, sf_dur=-1.0,
+    def rmot_pulse(self, dipole_on=True, bb_dur=-1.0,
                    att_blue=-1.0, att_red=-1.0):
-        # bb_dur / sf_dur (seconds) override the broadband and single-frequency
-        # hold times, and att_blue / att_red (dB) override the 3D blue / 3D red
-        # AOM attenuations, whenever the argument is >= 0; a negative value (the
-        # default) falls back to the GUI attribute. This lets an optimizer vary
-        # them via kernel arguments without forcing a recompile. Defaults
-        # reproduce old behavior.
+        # bb_dur (seconds) overrides the broadband hold time, and att_blue /
+        # att_red (dB) override the 3D blue / 3D red AOM attenuations, whenever
+        # the argument is >= 0; a negative value (the default) falls back to the
+        # GUI attribute. This lets an optimizer vary them via kernel arguments
+        # without forcing a recompile. The single-frequency stage is played back
+        # as the re-recordable "rmot_sf" DMA trace (freq/atten/duration all live
+        # in that trace), so no sf_dur argument is needed here.
         self.AOMs_off_all()
+        self.set_sweep(0, init=True)  # re-arm the DRG (disabled by the sf trace last pulse)
 
         # ensure powers at at correct power
         if att_blue >= 0.0:
@@ -283,11 +307,8 @@ class _Cooling(EnvExperiment):
         self.core_dma.playback("rmot_ramp")
         
 
-        # hold in single frequency mode  ##TODO
-        if sf_dur >= 0.0:
-            delay(sf_dur)
-        else:
-            delay(self.rmot_sf_duration)
+        # single-frequency compression stage (DRG off, stepped freq + Urukul atten)
+        self.core_dma.playback("rmot_sf")
         self.aom_3D_red.sw.off()
         self.ttl5.pulse(1*us)
         delay(2.0*us)  # ensure light is off before field ramp down
@@ -466,19 +487,22 @@ class _Cooling(EnvExperiment):
 
         x = np.linspace(0, 1, n)            # 0 at the start, 1 at the end
 
-        # frequency span -> DRG limits and step words
-        span = (self.freq_high - self.freq_low_i) + (self.freq_low_i - self.freq_low_f)*shape(self.shape_freq, x, self.ramp_tau)
+        # top of the sweep: linear ramp between freq_high_i and freq_high_f
+        upper_freq = np.linspace(self.freq_high_i, self.freq_high_f, n)
+        upper_ftw = [self.urukul_channels[0].frequency_to_ftw(f) for f in upper_freq]
+
+        # modulation depth (span below the top): shaped ramp between span_i and span_f
+        span = self.span_i + (self.span_f - self.span_i)*shape(self.shape_freq, x, self.ramp_tau)
         span_ftw = [self.urukul_channels[0].frequency_to_ftw(s) for s in span]
 
-        upper = self.urukul_channels[0].frequency_to_ftw(self.freq_high)
         step_up = [int(np.round(s * self.rmot_scan_frequency * 4e-9 * RATE_WORD)) for s in span_ftw]
 
         # zotino sweep values (attenuation VVA and coil field, both DAC volts)
         volts_atten = self.atten_ramp_i + (self.atten_ramp_f - self.atten_ramp_i)*shape(self.shape_atten, x, self.ramp_tau)
         volts_field = self.rmot_bb_current + (self.rmot_sf_current - self.rmot_bb_current)*shape('lin', x)
 
-        self.upper   = int32(upper)
-        self.lower   = [int32(upper - v) for v in span_ftw]
+        self.upper   = [int32(u) for u in upper_ftw]
+        self.lower   = [int32(upper_ftw[i] - span_ftw[i]) for i in range(n)]
         self.step_up = [int32(v) for v in step_up]
         self.step_dn = [int32(v) for v in span_ftw]
 
@@ -487,6 +511,25 @@ class _Cooling(EnvExperiment):
 
         self.rmot_n     = n
         self.rmot_dt_mu = self.core.seconds_to_mu(dt)
+
+    def _prepare_sf_stage(self):
+        """Linear single-frequency compression stage: step the aom_3D_red tuning word and
+        Urukul RF attenuation from *_i to *_f over rmot_sf_duration.  Always builds at least a
+        1-point trace (a 0 duration yields a negligible one-step trace; the light is switched off
+        right after playback, so it is harmless).  dt is floored at SF_STEP_DT so the per-step SPI
+        writes always fit inside the recorded timeline."""
+        n = int(self.rmot_sf_duration / SF_STEP_DT)
+        if n < 1:
+            n = 1
+        dt = max(self.rmot_sf_duration / n, SF_STEP_DT)
+        x  = np.linspace(0, 1, n)
+        freqs  = self.rmot_sf_freq_i  + (self.rmot_sf_freq_f  - self.rmot_sf_freq_i ) * x
+        attens = self.rmot_sf_atten_i + (self.rmot_sf_atten_f - self.rmot_sf_atten_i) * x
+        self.sf_ftw      = [int32(self.urukul_channels[0].frequency_to_ftw(f)) for f in freqs]
+        self.sf_atten_db = [float(a) for a in attens]
+        self.sf_asf      = int32(self.aom_3D_red.amplitude_to_asf(self.scale_3D_red))
+        self.sf_n        = n
+        self.sf_dt_mu    = self.core.seconds_to_mu(dt)
 
     def _prepare_coils(self):
         # one-off (non-DMA) ramp: normalized 0->1 shape, scaled in-kernel by ramp_field()
@@ -543,7 +586,7 @@ class _Cooling(EnvExperiment):
         self.core.break_realtime()
         delay(5*ms)
 
-        self.aom_3D_red.set(self.freq_low_i, amplitude=self.scale_3D_red)   # sets ASF; FTW from DRG
+        self.aom_3D_red.set(self.freq_high_i, amplitude=self.scale_3D_red)   # sets ASF; FTW from DRG
         self.zotino0.write_dac_mu(ATTEN_RAMP_DAC,  self.atten_dac_mu[0])  # sets initial attenuation for red MOT
         self.zotino0.load()
 
@@ -555,6 +598,8 @@ class _Cooling(EnvExperiment):
         # record every repeated rmot-pulse DMA trace once (DRG must be initialised first)
         self.record_rmot_ramp()
         self.record_field_ramps()
+        self.record_sf_stage_arg(self.sf_ftw, self.sf_atten_db, self.sf_asf,
+                                 self.sf_n, self.sf_dt_mu)
         self.core.break_realtime()
         
 
@@ -566,7 +611,7 @@ class _Cooling(EnvExperiment):
         If init is True, also set the CFR2 register to start the sweep.
         Only needs to be used at the start of the ramp, since the DRG will continue to sweep until the next update.
         """
-        self.aom_3D_red.write64(REG_LIMIT, self.upper, self.lower[i]) # update sweep params
+        self.aom_3D_red.write64(REG_LIMIT, self.upper[i], self.lower[i]) # update sweep params
         self.aom_3D_red.write64(REG_STEP, self.step_dn[i], self.step_up[i])
 
         if init:
@@ -604,8 +649,8 @@ class _Cooling(EnvExperiment):
         (ARTIQ bakes self.* reads into a kernel as compile-time constants; kernel
         arguments are runtime values). The DRG frequency-sweep writes are inlined
         here to mirror set_sweep(i) in its non-init form (assumes the DRG is
-        already running from _init_aoms()). upper is a single FTW; lower/step_up/
-        step_dn/atten_mu/field_mu are per-point lists of length n.
+        already running from _init_aoms()). upper/lower/step_up/step_dn/atten_mu/
+        field_mu are per-point lists of length n.
         """
         with self.core_dma.record("rmot_ramp"):
             t = now_mu()
@@ -617,10 +662,35 @@ class _Cooling(EnvExperiment):
                 self.zotino0.load()
 
                 # inline set_sweep(i), non-init: REG_LIMIT=0x0B, REG_STEP=0x0C
-                self.aom_3D_red.write64(0x0B, upper, lower[i])
+                self.aom_3D_red.write64(0x0B, upper[i], lower[i])
                 self.aom_3D_red.write64(0x0C, step_dn[i], step_up[i])
                 self.aom_3D_red.cpld.io_update.pulse_mu(8)
 
+                t += dt_mu
+            at_mu(t)
+        self.core.break_realtime()
+
+    @kernel
+    def record_sf_stage_arg(self, ftw, atten_db, asf, n, dt_mu,
+                            REG_CFR2=0x01, CFR2_STATIC=0x01000020):
+        """Argument-fed recorder of the single-frequency "rmot_sf" DMA trace.
+
+        Disables the DRG (CFR2 ramp bits cleared -> 0x01000020, keeping amplitude-
+        from-profile + sync bits) so the profile FTW drives a static, stepped tone,
+        then steps aom_3D_red's tuning word (set_mu) and Urukul RF attenuation
+        (set_att) through the passed arrays. Fed as arguments (not self.*) so an
+        optimizer can re-record it every iteration without a kernel recompile. The
+        DRG is re-armed at the top of the next rmot_pulse via set_sweep(0, init=True).
+        ftw is a per-point FTW list, atten_db a per-point dB list (length n); asf is
+        a single amplitude scale factor."""
+        with self.core_dma.record("rmot_sf"):
+            self.aom_3D_red.write32(REG_CFR2, CFR2_STATIC)
+            self.aom_3D_red.cpld.io_update.pulse_mu(8)
+            t = now_mu()
+            for i in range(n):
+                at_mu(t)
+                self.aom_3D_red.set_mu(ftw[i], asf=asf)  # step frequency
+                self.aom_3D_red.set_att(atten_db[i])     # step Urukul RF attenuation
                 t += dt_mu
             at_mu(t)
         self.core.break_realtime()

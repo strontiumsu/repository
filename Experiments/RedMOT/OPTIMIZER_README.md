@@ -91,7 +91,7 @@ stale handshake files at startup, so a restart begins fresh at seq 0.
 | [mloop_stub_server.py](mloop_stub_server.py) | terminal | Hardware-free stand-in for the ARTIQ side (synthetic cost) for dry-runs. |
 | [opt_stages/](opt_stages/)`*.json` | — | Per-stage param names, bounds, first values, controller settings. |
 | [OPTIMIZER_TESTS.md](OPTIMIZER_TESTS.md) | — | Ordered bring-up / test checklist. |
-| [../Classes/CoolingClass.py](../Classes/CoolingClass.py) | — | Additive hooks: `record_rmot_ramp_arg`; `rmot_pulse(bb_dur, sf_dur, att_blue, att_red)`; capture knobs promoted to GUI args. |
+| [../Classes/CoolingClass.py](../Classes/CoolingClass.py) | — | Additive hooks: `record_rmot_ramp_arg`, `record_sf_stage_arg`; `rmot_pulse(bb_dur, att_blue, att_red)`; single-frequency stage as the re-recordable `rmot_sf` DMA trace; capture knobs promoted to GUI args. |
 | [../Classes/rois.json](../Classes/rois.json) | — | `lattice_load` ROI scheme (the count region). |
 
 <a name="one-shot"></a>
@@ -101,7 +101,7 @@ stale handshake files at startup, so a restart begins fresh at seq 0.
 reference shot:
 
 ```
-rmot_pulse(bb_dur, sf_dur, att_blue, att_red)   # lattice/dipole already ON; loads atoms
+rmot_pulse(bb_dur, att_blue, att_red)           # lattice/dipole already ON; loads atoms
 delay(hold_time)                                # shallow trap: hot atoms leave
 take_MOT_image(Camera)                          # existing fluorescence imaging
 process_image(return_ports=["lattice"]) -> counts   # sum of the lattice_load ROI
@@ -122,41 +122,49 @@ stays at its GUI/base value.
 
 **How each is applied (this is what keeps the loop compile-stable):**
 
-- **DMA-baked** (`freq_high`, `freq_low_i`, `freq_low_f`, `ramp_tau`,
-  `rmot_scan_frequency`, `atten_ramp_i`, `atten_ramp_f`, `rmot_bb_current`,
-  `rmot_sf_current`, `rmot_ramp_duration`, `bmot_current`, `bmot_ramp_duration`,
-  `binc`, `blue_transfer_time`, `to_bb_time`, `blue_att_i`, `blue_att_f`):
-  set on the host, the ramp arrays are recomputed by `_prepare_rmot_ramp` /
-  `_prepare_coils`, and the DMA traces are re-recorded from those arrays passed
-  as **kernel arguments** — so no recompile between shots.
+- **DMA-baked** (compression sweep: `freq_high_i`, `freq_high_f`, `span_i`,
+  `span_f`, `ramp_tau`, `rmot_scan_frequency`, `atten_ramp_i`, `atten_ramp_f`,
+  `rmot_bb_current`, `rmot_sf_current`, `rmot_ramp_duration`; single-frequency
+  stage: `rmot_sf_freq_i`, `rmot_sf_freq_f`, `rmot_sf_atten_i`, `rmot_sf_atten_f`,
+  `rmot_sf_duration`; capture/field: `bmot_current`, `bmot_ramp_duration`, `binc`,
+  `blue_transfer_time`, `to_bb_time`, `blue_att_i`, `blue_att_f`): set on the host,
+  the arrays are recomputed by `_prepare_rmot_ramp` / `_prepare_sf_stage` /
+  `_prepare_coils`, and the DMA traces (`rmot_ramp`, `rmot_sf`, field ramps) are
+  re-recorded from those arrays passed as **kernel arguments** — no recompile
+  between shots.
 - **Kernel-arg** (`NO_SETATTR`: `rmot_bb_duration`→`bb_dur`,
-  `rmot_sf_duration`→`sf_dur`, `atten_3D`→`att_blue`, `atten_3D_red`→`att_red`):
-  forwarded straight to `rmot_pulse` as arguments (never written to `self`, which
-  would recompile).
+  `atten_3D`→`att_blue`, `atten_3D_red`→`att_red`): forwarded straight to
+  `rmot_pulse` as arguments (never written to `self`, which would recompile).
 
 **Fixed, not optimized:**
 - `bmot_load_duration` — pinned once at run start to `bmot_load_duration_fixed`
   (default 0.5 s).
 - `shape_freq`, `shape_atten` — categorical; M-LOOP is continuous-only, so these
   stay on their GUI value.
-- `ramp_tau`, `rmot_scan_frequency` — in the registry but not in any stage yet,
-  so fixed unless you add them to a stage.
+- Blue-MOT / blue→red capture knobs (`bmot_current`, `binc`, `blue_att_i/f`,
+  `blue_transfer_time`, `to_bb_time`, `atten_3D`, …) remain in the registry but are
+  **not** in `red_mot.json`, so they stay on their GUI value. Add them to
+  `param_names` if you want to optimize them later.
 
 **Units** (must match the stage JSON): frequencies **Hz**, currents/fields **A**
 (coil setpoint is DAC volts, ≈A), VVA attenuations **DAC volts** (0–9.99), AOM
 attenuations **dB** (1–30), durations **seconds**.
 
 <a name="stages"></a>
-## 6. Stages & how to chain them
+## 6. Stage config
 
-The full sequence is optimized in rotating blocks (dimension kept small so the GP
-stays sample-efficient). Provided configs:
+The optimizer is scoped to a **single red-MOT stage** — one file,
+`opt_stages/red_mot.json`, is the one place to edit which red-MOT params are varied
+and their bounds. It covers the broadband red MOT, the compression sweep, and the
+single-frequency stage (17 params):
 
 | Stage file | Params (active) |
 |---|---|
-| `stage1.json` | `freq_low_f, atten_ramp_f, rmot_sf_current, rmot_ramp_duration, rmot_sf_duration, atten_3D_red` |
-| `stage2.json` | `rmot_bb_current, rmot_bb_duration, freq_high, freq_low_i, atten_ramp_i, to_bb_time` |
-| `stage3.json` | `bmot_current, bmot_ramp_duration, binc, blue_att_i, blue_att_f, blue_transfer_time, atten_3D` |
+| `red_mot.json` | `rmot_bb_current, rmot_bb_duration, freq_high_i, freq_high_f, span_i, span_f, atten_ramp_i, atten_ramp_f, ramp_tau, rmot_scan_frequency, rmot_ramp_duration, rmot_sf_current, rmot_sf_freq_i, rmot_sf_freq_f, rmot_sf_atten_i, rmot_sf_atten_f, rmot_sf_duration` |
+
+17 dimensions is a lot for a GP — trim `param_names` (and the aligned
+`first/min/max` arrays) to a subset for faster convergence; the driver accepts any
+length. The old three-stage blue/red/transfer workflow was removed.
 
 **Chaining is manual** (by design): after a stage finishes, take its winners from
 `best_params_<stage>.json` and set them as the corresponding **CoolingClass GUI
@@ -172,7 +180,7 @@ moved the optimum.
 **Per campaign:**
 1. In the ARTIQ dashboard, open **`TransferOptimizer`** and set the `Optimizer`
    argument group:
-   - `stage_name` = e.g. `stage1` (names the checkpoint files),
+   - `stage_name` = `red_mot` (names the checkpoint files),
    - `handshake_dir` and `checkpoint_dir` (must match the driver's flags),
    - `hold_time`, `camera_rearm_chunk`, `reference_every_N`,
      `drift_threshold_pct`, `bmot_load_duration_fixed`, `bragg_switches`.
@@ -185,13 +193,13 @@ moved the optimum.
    takes a background image, runs `ref_settle_shots` baseline shots, then serves
    requests; the driver:
    ```
-   python mloop_optimize.py --stage opt_stages/stage1.json \
+   python mloop_optimize.py --stage opt_stages/red_mot.json \
        --handshake "<handshake_dir>" --checkpoint "<checkpoint_dir>"
    ```
 4. Watch the ARTIQ terminal and the `opt.*` datasets. When M-LOOP hits
    `max_num_runs` (or `target_cost`), it writes the winner and touches `STOP`;
    the experiment restores the lasers and exits.
-5. Set the winners as GUI defaults and repeat for stage 2, then stage 3.
+5. Set the winners (`best_params_red_mot.json`) as the CoolingClass GUI defaults.
 
 To stop early: touch a file named `STOP` in the handshake dir (or Terminate the
 experiment in the dashboard — `scheduler.check_pause()` handles it).
@@ -202,7 +210,7 @@ experiment in the dashboard — `scheduler.check_pause()` handles it).
 **ARTIQ terminal** (plain prints from the host loop):
 ```
 [baseline] reference baseline = 1180.0
-[iter 7 | seq 6] shot params: freq_low_f=1.8e+08, atten_ramp_f=0.42, rmot_sf_current=2.3, ...
+[iter 7 | seq 6] shot params: span_f=1.1e+06, atten_ramp_f=0.42, rmot_sf_current=2.3, ...
 [iter 7 | seq 6] counts=1523 ref=1185.0 cost=-1.2852 bad=False
 [reference] counts=1190 ref_ema=1185.0 drift=+0.4%
 ```
@@ -274,9 +282,10 @@ just resubmit `TransferOptimizer`, which always re-runs the baseline shots.
 <a name="customizing"></a>
 ## 11. Customizing
 
-**Change bounds / first values / run count:** edit the stage JSON. `param_names`
+**Change bounds / first values / run count:** edit `red_mot.json`. `param_names`
 order MUST match `min_boundary` / `max_boundary` / `first_params`. Keep
-`max(bmot_current)+max(binc) ≤ 7` (MAX_CURRENT) and `freq_low_f ≤ freq_high`.
+`rmot_bb_current` and `rmot_sf_current` ≤ 7 (MAX_CURRENT). The compressed sweep
+bottom is `(freq_high - span)`; keep `span` ≤ the top so the sweep does not invert.
 Infeasible candidates are auto-flagged `bad`, not fatal — but tight bounds waste
 fewer shots.
 
@@ -309,7 +318,7 @@ In the **handshake dir**:
 ```
 # 1) submit TransferOptimizer in the dashboard (stage_name + dirs + ROI set)
 # 2) then:
-python mloop_optimize.py --stage opt_stages/stage1.json \
+python mloop_optimize.py --stage opt_stages/red_mot.json \
     --handshake "<dir>" --checkpoint "<dir>"
 ```
 

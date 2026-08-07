@@ -111,9 +111,10 @@ class TransferOptimizer_exp(EnvExperiment):
     # continuous parameters only; leave those on their GUI value.
     PARAM_ATTR = {
         # --- compression sweep (DMA-baked: re-precompute + re-record) ---
-        "freq_high":           "freq_high",
-        "freq_low_i":          "freq_low_i",
-        "freq_low_f":          "freq_low_f",
+        "freq_high_i":         "freq_high_i",         # swept top of the sweep, start
+        "freq_high_f":         "freq_high_f",         # swept top of the sweep, end
+        "span_i":              "span_i",              # modulation depth (below top), start
+        "span_f":              "span_f",              # modulation depth (below top), end
         "ramp_tau":            "ramp_tau",
         "rmot_scan_frequency": "rmot_scan_frequency",
         "atten_ramp_i":        "atten_ramp_i",
@@ -121,6 +122,12 @@ class TransferOptimizer_exp(EnvExperiment):
         "rmot_bb_current":     "rmot_bb_current",
         "rmot_sf_current":     "rmot_sf_current",
         "rmot_ramp_duration":  "rmot_ramp_duration",
+        # --- single-frequency stage (DMA-baked "rmot_sf": re-precompute + re-record) ---
+        "rmot_sf_freq_i":      "rmot_sf_freq_i",      # sf tone frequency, start
+        "rmot_sf_freq_f":      "rmot_sf_freq_f",      # sf tone frequency, end
+        "rmot_sf_atten_i":     "rmot_sf_atten_i",     # sf Urukul RF attenuation, start (dB)
+        "rmot_sf_atten_f":     "rmot_sf_atten_f",     # sf Urukul RF attenuation, end (dB)
+        "rmot_sf_duration":    "rmot_sf_duration",    # sf stage length (sets the trace point count)
         # --- field ramps + blue->red capture handoff (DMA-baked) ---
         "bmot_current":        "bmot_current",
         "bmot_ramp_duration":  "bmot_ramp_duration",
@@ -131,16 +138,17 @@ class TransferOptimizer_exp(EnvExperiment):
         "blue_att_f":          "blue_att_f",          # blue capture atten end (dB)
         # --- cheap: forwarded to rmot_pulse as kernel args (see NO_SETATTR) ---
         "rmot_bb_duration":    "rmot_bb_duration",    # -> bb_dur
-        "rmot_sf_duration":    "rmot_sf_duration",    # -> sf_dur
         "atten_3D":            "atten_3D",            # -> att_blue (3D blue power)
         "atten_3D_red":        "atten_3D_red",        # -> att_red  (3D red power)
     }
 
     # Names NOT written onto self.MOTs — instead forwarded to rmot_pulse as
     # kernel *arguments* (writing them would recompile rmot_pulse each iteration).
+    # rmot_sf_duration is NOT here: the single-frequency stage is now a re-recorded
+    # DMA trace ("rmot_sf"), so its length is DMA-baked like the compression sweep.
     # bmot_load_duration is intentionally absent: it is held fixed (see build /
     # run) at bmot_load_duration_fixed, not optimized.
-    NO_SETATTR = ("rmot_bb_duration", "rmot_sf_duration", "atten_3D", "atten_3D_red")
+    NO_SETATTR = ("rmot_bb_duration", "atten_3D", "atten_3D_red")
 
     # ------------------------------------------------------------------
     # build
@@ -156,7 +164,7 @@ class TransferOptimizer_exp(EnvExperiment):
         self.Camera = _Camera(self)
 
         g = "Optimizer"
-        self.setattr_argument("stage_name", StringValue("stage1"), g)
+        self.setattr_argument("stage_name", StringValue("red_mot"), g)
         self.setattr_argument("handshake_dir",
                               StringValue(r"C:\Users\sr\Documents\Artiq\ARTIQ_opt"), g)
         self.setattr_argument("checkpoint_dir",
@@ -229,11 +237,14 @@ class TransferOptimizer_exp(EnvExperiment):
     @kernel
     def _rerecord_dma(self, upper, lower, step_up, step_dn, atten_mu, field_mu,
                       rmot_n, rmot_dt_mu,
+                      sf_ftw, sf_atten_db, sf_asf, sf_n, sf_dt_mu,
                       blue_up, blue_down, to_bb, sf_down, blue_load, blue_att,
                       bmot_ramp_dur, to_bb_time, blue_transfer_time):
         # compression sweep (attenuation VVA + coil field + DRG frequency sweep)
         self.MOTs.record_rmot_ramp_arg(upper, lower, step_up, step_dn,
                                        atten_mu, field_mu, rmot_n, rmot_dt_mu)
+        # single-frequency stage (DRG off, stepped tone + Urukul attenuation)
+        self.MOTs.record_sf_stage_arg(sf_ftw, sf_atten_db, sf_asf, sf_n, sf_dt_mu)
         # single-channel coil-field ramps
         self.MOTs._record_field_ramp("field_blue_up",   blue_up,   bmot_ramp_dur)
         self.MOTs._record_field_ramp("field_blue_down", blue_down, bmot_ramp_dur)
@@ -258,9 +269,9 @@ class TransferOptimizer_exp(EnvExperiment):
     # All per-shot tunables arrive as arguments -> no recompile between shots.
     # ------------------------------------------------------------------
     @kernel
-    def do_shot(self, bb_dur, sf_dur, att_blue, att_red, hold_time) -> TInt32:
+    def do_shot(self, bb_dur, att_blue, att_red, hold_time) -> TInt32:
         # lattice/dipole are already on (from init); rmot_pulse loads into them.
-        self.MOTs.rmot_pulse(bb_dur=bb_dur, sf_dur=sf_dur,
+        self.MOTs.rmot_pulse(bb_dur=bb_dur,
                              att_blue=att_blue, att_red=att_red)
         delay(hold_time)                      # shallow lattice: hot atoms escape
         self.MOTs.take_MOT_image(self.Camera)  # existing fluorescence imaging
@@ -383,15 +394,15 @@ class TransferOptimizer_exp(EnvExperiment):
 
     def _shoot(self, full):
         """Apply `full`, re-record DMA, run one shot, return lattice counts."""
-        bb, sf, ab, ar = self._apply(full)
+        bb, ab, ar = self._apply(full)
         self._ensure_camera()
-        counts = int(self.do_shot(bb, sf, ab, ar, float(self.hold_time)))
+        counts = int(self.do_shot(bb, ab, ar, float(self.hold_time)))
         self._frames_since_arm += 1
         return counts
 
     def _apply(self, full):
         """Host: set attributes + recompute ramps; kernel: re-record DMA.
-        Returns (bb_dur, sf_dur, att_blue, att_red) to pass to do_shot."""
+        Returns (bb_dur, att_blue, att_red) to pass to do_shot."""
         for name, val in full.items():
             if name in self.NO_SETATTR:
                 continue                      # forwarded as kernel arg, not attr
@@ -399,6 +410,7 @@ class TransferOptimizer_exp(EnvExperiment):
 
         # host numpy precompute (fills self.MOTs.* ramp arrays)
         self.MOTs._prepare_rmot_ramp()
+        self.MOTs._prepare_sf_stage()
         self.MOTs._prepare_coils()
         m = self.MOTs
         self._blue_down_mu = [m.blue_up_mu[len(m.blue_up_mu) - 1 - i]
@@ -407,11 +419,12 @@ class TransferOptimizer_exp(EnvExperiment):
         # kernel re-record (all arrays + tunable durations passed as arguments)
         self._rerecord_dma(m.upper, m.lower, m.step_up, m.step_dn,
                            m.atten_dac_mu, m.field_dac_mu, m.rmot_n, m.rmot_dt_mu,
+                           m.sf_ftw, m.sf_atten_db, m.sf_asf, m.sf_n, m.sf_dt_mu,
                            m.blue_up_mu, self._blue_down_mu, m.to_bb_mu, m.sf_down_mu,
                            m.blue_load_mu, m.blue_att_db, m.bmot_ramp_duration,
                            m.to_bb_time, m.blue_transfer_time)
 
-        return (float(full["rmot_bb_duration"]), float(full["rmot_sf_duration"]),
+        return (float(full["rmot_bb_duration"]),
                 float(full["atten_3D"]), float(full["atten_3D_red"]))
 
     def _snapshot_base(self):

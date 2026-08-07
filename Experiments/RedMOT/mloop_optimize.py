@@ -13,7 +13,7 @@ measured (normalized) cost, and feeds it back to M-LOOP. On finish it writes the
 best parameters and signals the ARTIQ experiment to stop.
 
 Usage:
-    python mloop_optimize.py --stage opt_stages/stage1.json \
+    python mloop_optimize.py --stage opt_stages/red_mot.json \
         --handshake "<FILL: same handshake dir as the experiment>" \
         --checkpoint "<FILL: same checkpoint dir as the experiment>"
 

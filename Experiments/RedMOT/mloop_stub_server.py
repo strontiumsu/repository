@@ -14,7 +14,7 @@ in EITHER order (the driver re-sends its request if the server starts later).
 M-LOOP should converge toward the bounds-midpoint of every parameter (cost -> ~-1).
 
 Usage:
-    python mloop_stub_server.py --stage opt_stages/stage1.json \
+    python mloop_stub_server.py --stage opt_stages/red_mot.json \
         --handshake ./_stub_handshake --checkpoint ./_stub_checkpoint
 """
 

@@ -12,8 +12,8 @@ Everything lives on the `transfer-optimizer` branch (off `merge_branches`).
 | `TransferOptimizer.py` | ARTIQ "server": warm kernel, applies params, runs one shot, counts lattice ROI, interleaves reference, checkpoints. |
 | `mloop_optimize.py` | External M-LOOP driver (owns the optimization loop). |
 | `mloop_stub_server.py` | Hardware-free stand-in for the ARTIQ server (synthetic cost) for dry-runs. |
-| `opt_stages/*.json` | Per-stage param names / bounds / first_params. |
-| `../Classes/CoolingClass.py` | +`record_rmot_ramp_arg`; +`rmot_pulse(bb_dur, sf_dur, att_blue, att_red)`; capture knobs `binc`/`blue_transfer_time`/`to_bb_time`/`blue_att_i`/`blue_att_f` promoted from constants to GUI args (additive, defaults unchanged). |
+| `opt_stages/red_mot.json` | The single red-MOT stage: param names / bounds / first_params. |
+| `../Classes/CoolingClass.py` | +`record_rmot_ramp_arg`, +`record_sf_stage_arg`; +`rmot_pulse(bb_dur, att_blue, att_red)`; single-frequency stage as the re-recordable `rmot_sf` DMA trace; capture knobs `binc`/`blue_transfer_time`/`to_bb_time`/`blue_att_i`/`blue_att_f` promoted from constants to GUI args. |
 | `../Classes/rois.json` | +`lattice_load` ROI scheme. |
 
 ## FILL these before hardware runs
@@ -42,15 +42,15 @@ Two terminals in `Experiments/RedMOT/`, same `--handshake` dir. Start them in
 
 Terminal A (fake experiment):
 ```
-python mloop_stub_server.py --stage opt_stages/stage1.json \
+python mloop_stub_server.py --stage opt_stages/red_mot.json \
   --handshake ./_dry/handshake --checkpoint ./_dry/checkpoint
 ```
 Terminal B (real driver):
 ```
-python mloop_optimize.py --stage opt_stages/stage1.json \
+python mloop_optimize.py --stage opt_stages/red_mot.json \
   --handshake ./_dry/handshake --checkpoint ./_dry/checkpoint
 ```
-**Pass:** driver runs ~120 evals; best cost approaches **−1**; `mloop_best_stage1.json`
+**Pass:** driver runs ~120 evals; best cost approaches **−1**; `mloop_best_red_mot.json`
 lists params near each bound's midpoint (the stub's known optimum). JSON files
 appear/disappear in `_dry/handshake`.
 
@@ -59,7 +59,7 @@ Re-run Step 0 but **kill Terminal B (Ctrl-C) after ~30 evals**, then re-launch t
 same Terminal B command.
 **Pass:** on relaunch it prints `Seeding first_params from …best_params…` and/or
 `Warm-starting learner from …learner_archive…`, and continues rather than
-restarting cold. Confirm `_dry/checkpoint/progress_stage1.jsonl`
+restarting cold. Confirm `_dry/checkpoint/progress_red_mot.jsonl`
 kept growing across the restart.
 
 Cleanup: `rm -r _dry` (or delete the folder).
@@ -72,7 +72,8 @@ you'll see it immediately. (Do NOT submit yet.) Sanity-check that the new
 
 If you prefer a CLI compile check of just the additive kernel hooks, run any
 existing rmot experiment that calls `rmot_pulse` — defaults reproduce old behavior
-(new `bb_dur`/`sf_dur` default to −1 → fall back to the GUI attributes).
+(`bb_dur`/`att_blue`/`att_red` default to −1 → fall back to the GUI attributes; the
+single-frequency stage plays the `rmot_sf` DMA trace built from the GUI values).
 
 ---
 ## HARDWARE steps (run by you)
@@ -106,25 +107,25 @@ taking candidate data and keeps measuring the reference. Restore conditions →
 `opt.alert` returns to 0 and it resumes. To accept a permanently shifted baseline,
 touch `REBASELINE` in the handshake dir.
 
-## Step 5 — Live Stage-1 campaign (~50–100 runs)
-1. Submit `TransferOptimizer` with `stage_name = stage1`.
+## Step 5 — Live red-MOT campaign (~50–200 runs)
+1. Submit `TransferOptimizer` with `stage_name = red_mot`.
 2. In a terminal:
    ```
-   python mloop_optimize.py --stage opt_stages/stage1.json \
+   python mloop_optimize.py --stage opt_stages/red_mot.json \
      --handshake "<FILL>" --checkpoint "<FILL>"
    ```
    (add `--plots` to see M-LOOP's landscape/correlation plots at the end; it's off
    by default because `plt.show()` blocks until the windows are closed.)
 **Pass:** normalized cost trends downward (counts up); `opt.best_counts` climbs;
-`best_params_stage1.json` holds the winner. With `--plots`, the M-LOOP
+`best_params_red_mot.json` holds the winner. With `--plots`, the M-LOOP
 landscape plot looks sensible.
 
-## Step 6 — Chain stages 2 → 3
-Set the Stage-1 winners as the `TransferOptimizer` GUI defaults (so they become
-the fixed base + reference), then repeat Step 5 with
-`opt_stages/stage2.json`, then `stage3.json`.
-Note: Stage 3 tunes `bmot_load_duration`, which recompiles the kernel once per
-iteration (accepted, slower). Re-rotate stage 1 afterward if the optimum moved.
+## Step 6 — Apply the winners
+Set the `best_params_red_mot.json` winners as the `TransferOptimizer` /
+CoolingClass GUI defaults. This is a single red-MOT stage — there is no
+blue/transfer chaining. If you want to also tune blue-MOT / capture knobs later,
+add their names + bounds to `red_mot.json` (they are already in `PARAM_ATTR`);
+17 params is already high-dimensional, so consider trimming rather than growing.
 
 ## Optional — verify the atoms are actually colder
 The shallow-lattice count is a *proxy* for "cold + numerous". Once you have a
@@ -134,11 +135,13 @@ separate from this optimizer.
 
 ---
 ## How it stays compile-stable (why the loop is fast)
-Per-shot scalars (`bb_dur`, `sf_dur`, `hold_time`) are **kernel arguments**, and
-every re-recorded DMA trace is fed **arrays as arguments** via
-`record_rmot_ramp_arg` + `_record_field_ramp` — so ARTIQ compiles `do_shot` and
-`_rerecord_dma` once and reuses them. The only intentional exception is
-`bmot_load_duration` (Stage 3), read as `self.*` inside `rmot_pulse`.
+Per-shot scalars (`bb_dur`, `att_blue`, `att_red`, `hold_time`) are **kernel
+arguments**, and every re-recorded DMA trace (`rmot_ramp`, `rmot_sf`, field ramps)
+is fed **arrays as arguments** via `record_rmot_ramp_arg` + `record_sf_stage_arg` +
+`_record_field_ramp` — so ARTIQ compiles `do_shot` and `_rerecord_dma` once and
+reuses them. `bmot_load_duration` is not optimized (pinned once at run start to
+`bmot_load_duration_fixed`), so it is a compile-time constant and does not recompile
+the loop.
 
 ## Troubleshooting
 - **Driver `TimeoutError` waiting for response:** the experiment isn't running,
