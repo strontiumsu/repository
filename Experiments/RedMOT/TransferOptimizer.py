@@ -50,15 +50,12 @@ from pathlib import Path
 import numpy as np
 
 from artiq.experiment import (  # pyright: ignore[reportMissingImports]
-    EnvExperiment, kernel, delay, ms, now_mu, at_mu,
+    EnvExperiment, kernel, delay, ms, now_mu,
     NumberValue, StringValue, TInt32,
 )
 
-# Reuse the MOT-side constants so the inlined blue-capture re-record matches the
-# original recording exactly. to_bb_time / blue_transfer_time are now tunable
-# (passed as arguments); only the fixed sf-down duration is imported here.
 from CoolingClass import (  # pyright: ignore[reportMissingImports]
-    _Cooling, BFIELD_DAC, SF_DOWN_TIME,
+    _Cooling,
 )
 from CameraClass import _Camera  # pyright: ignore[reportMissingImports]
 from BraggClass import _Bragg    # pyright: ignore[reportMissingImports]
@@ -227,42 +224,21 @@ class TransferOptimizer_exp(EnvExperiment):
         self.core.break_realtime()
 
     # ------------------------------------------------------------------
-    # kernel: re-record every DMA trace this pulse plays back, from ARGUMENTS.
-    # Reading these from self.* would bake them in as compile-time constants and
-    # force a recompile every iteration; passing them in keeps the loop
-    # compile-once. record_rmot_ramp_arg / _record_field_ramp are _Cooling
-    # methods (the latter already argument-fed); the blue-capture trace is
-    # inlined here because it also ramps the blue AOM attenuation.
+    # kernel: re-record every DMA trace this pulse plays back.
+    #
+    # This reuses _Cooling._dma_record() — the EXACT recording path init_cooling
+    # runs — reading the freshly recomputed self.MOTs.* ramp arrays as attributes
+    # (embedded by object reference). The arrays are deliberately NOT passed as
+    # kernel arguments: ARTIQ's quote() serializes a list argument element-by-
+    # element onto a single synthesized source line, and the thousands of ramp
+    # points overflow LLVM's 16-bit debug-info column, i.e.
+    #   RuntimeError: LLVM IR parsing error / value for 'column' too large.
+    # (Core.run recompiles every top-level kernel call in this ARTIQ regardless,
+    # so reading self.* rather than args costs no extra compiles.)
     # ------------------------------------------------------------------
     @kernel
-    def _rerecord_dma(self, upper, lower, step_up, step_dn, atten_mu, field_mu,
-                      rmot_n, rmot_dt_mu,
-                      sf_ftw, sf_atten_db, sf_asf, sf_n, sf_dt_mu,
-                      blue_up, blue_down, to_bb, sf_down, blue_load, blue_att,
-                      bmot_ramp_dur, to_bb_time, blue_transfer_time):
-        # compression sweep (attenuation VVA + coil field + DRG frequency sweep)
-        self.MOTs.record_rmot_ramp_arg(upper, lower, step_up, step_dn,
-                                       atten_mu, field_mu, rmot_n, rmot_dt_mu)
-        # single-frequency stage (DRG off, stepped tone + Urukul attenuation)
-        self.MOTs.record_sf_stage_arg(sf_ftw, sf_atten_db, sf_asf, sf_n, sf_dt_mu)
-        # single-channel coil-field ramps
-        self.MOTs._record_field_ramp("field_blue_up",   blue_up,   bmot_ramp_dur)
-        self.MOTs._record_field_ramp("field_blue_down", blue_down, bmot_ramp_dur)
-        self.MOTs._record_field_ramp("field_to_bb",     to_bb,     to_bb_time)
-        self.MOTs._record_field_ramp("field_sf_down",   sf_down,   SF_DOWN_TIME)
-        # blue capture ramp: coil current + blue AOM attenuation in one trace
-        n = len(blue_load)
-        dt_mu = self.core.seconds_to_mu(blue_transfer_time / n)
-        with self.MOTs.core_dma.record("field_blue_load"):
-            t = now_mu()
-            for i in range(n):
-                at_mu(t)
-                self.MOTs.zotino0.write_dac_mu(BFIELD_DAC, blue_load[i])
-                self.MOTs.zotino0.load()
-                self.MOTs.aom_3D_blue.set_att(blue_att[i])
-                t += dt_mu
-            at_mu(t)
-        self.core.break_realtime()
+    def _rerecord_dma(self):
+        self.MOTs._dma_record()   # record_rmot_ramp + record_field_ramps + rmot_sf
 
     # ------------------------------------------------------------------
     # kernel: one measurement shot -> lattice-ROI counts
@@ -412,17 +388,10 @@ class TransferOptimizer_exp(EnvExperiment):
         self.MOTs._prepare_rmot_ramp()
         self.MOTs._prepare_sf_stage()
         self.MOTs._prepare_coils()
-        m = self.MOTs
-        self._blue_down_mu = [m.blue_up_mu[len(m.blue_up_mu) - 1 - i]
-                              for i in range(len(m.blue_up_mu))]
 
-        # kernel re-record (all arrays + tunable durations passed as arguments)
-        self._rerecord_dma(m.upper, m.lower, m.step_up, m.step_dn,
-                           m.atten_dac_mu, m.field_dac_mu, m.rmot_n, m.rmot_dt_mu,
-                           m.sf_ftw, m.sf_atten_db, m.sf_asf, m.sf_n, m.sf_dt_mu,
-                           m.blue_up_mu, self._blue_down_mu, m.to_bb_mu, m.sf_down_mu,
-                           m.blue_load_mu, m.blue_att_db, m.bmot_ramp_duration,
-                           m.to_bb_time, m.blue_transfer_time)
+        # kernel re-record: reads the self.MOTs.* arrays just recomputed above
+        # (see _rerecord_dma for why they are NOT passed as arguments).
+        self._rerecord_dma()
 
         return (float(full["rmot_bb_duration"]),
                 float(full["atten_3D"]), float(full["atten_3D_red"]))

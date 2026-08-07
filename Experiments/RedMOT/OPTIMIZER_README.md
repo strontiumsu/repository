@@ -120,7 +120,7 @@ registry in [TransferOptimizer.py](TransferOptimizer.py). *Which* of them are
 actually varied is decided by each stage JSON's `param_names`; anything not named
 stays at its GUI/base value.
 
-**How each is applied (this is what keeps the loop compile-stable):**
+**How each is applied:**
 
 - **DMA-baked** (compression sweep: `freq_high_i`, `freq_high_f`, `span_i`,
   `span_f`, `ramp_tau`, `rmot_scan_frequency`, `atten_ramp_i`, `atten_ramp_f`,
@@ -129,9 +129,15 @@ stays at its GUI/base value.
   `rmot_sf_duration`; capture/field: `bmot_current`, `bmot_ramp_duration`, `binc`,
   `blue_transfer_time`, `to_bb_time`, `blue_att_i`, `blue_att_f`): set on the host,
   the arrays are recomputed by `_prepare_rmot_ramp` / `_prepare_sf_stage` /
-  `_prepare_coils`, and the DMA traces (`rmot_ramp`, `rmot_sf`, field ramps) are
-  re-recorded from those arrays passed as **kernel arguments** — no recompile
-  between shots.
+  `_prepare_coils`, and `_rerecord_dma` re-records the DMA traces (`rmot_ramp`,
+  `rmot_sf`, field ramps) by calling `_Cooling._dma_record()`, which reads those
+  `self.MOTs.*` arrays. They are read as **attributes, not kernel arguments** —
+  ARTIQ's compiler serializes a list *argument* element-by-element into one
+  synthesized source line, and thousands of ramp points overflow LLVM's 16-bit
+  debug-info column (`value for 'column' too large`). Reading them as attributes
+  (embedded by object reference) avoids that. Note: this ARTIQ recompiles every
+  top-level kernel call regardless, so attribute vs argument is purely about the
+  column-overflow, not compile count.
 - **Kernel-arg** (`NO_SETATTR`: `rmot_bb_duration`→`bb_dur`,
   `atten_3D`→`att_blue`, `atten_3D_red`→`att_red`): forwarded straight to
   `rmot_pulse` as arguments (never written to `self`, which would recompile).

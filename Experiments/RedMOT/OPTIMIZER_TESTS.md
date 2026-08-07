@@ -134,14 +134,18 @@ winner, confirm temperature dropped with your own time-of-flight measurement
 separate from this optimizer.
 
 ---
-## How it stays compile-stable (why the loop is fast)
-Per-shot scalars (`bb_dur`, `att_blue`, `att_red`, `hold_time`) are **kernel
-arguments**, and every re-recorded DMA trace (`rmot_ramp`, `rmot_sf`, field ramps)
-is fed **arrays as arguments** via `record_rmot_ramp_arg` + `record_sf_stage_arg` +
-`_record_field_ramp` — so ARTIQ compiles `do_shot` and `_rerecord_dma` once and
-reuses them. `bmot_load_duration` is not optimized (pinned once at run start to
-`bmot_load_duration_fixed`), so it is a compile-time constant and does not recompile
-the loop.
+## DMA re-record & the LLVM "column too large" trap
+This ARTIQ recompiles every top-level kernel call (`Core.run` always calls
+`compile()`), so the loop is not literally compile-once. What matters instead: the
+per-shot ramp arrays must NOT be passed as **kernel arguments** to `_rerecord_dma`.
+ARTIQ's compiler serializes a `list` argument element-by-element onto a single
+synthesized source line; the thousands of ramp points push LLVM's 16-bit debug-info
+column past 65535 → `RuntimeError: LLVM IR parsing error / value for 'column' too
+large`. So `_rerecord_dma` instead calls `_Cooling._dma_record()`, reading the
+recomputed `self.MOTs.*` arrays as **attributes** (embedded by object reference, not
+enumerated) — exactly the path `init_cooling` uses. Per-shot scalars (`bb_dur`,
+`att_blue`, `att_red`, `hold_time`) stay kernel arguments (scalars don't overflow).
+`bmot_load_duration` is pinned once at run start to `bmot_load_duration_fixed`.
 
 ## Troubleshooting
 - **Driver `TimeoutError` waiting for response:** the experiment isn't running,
