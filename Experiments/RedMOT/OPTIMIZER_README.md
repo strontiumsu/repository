@@ -91,65 +91,66 @@ stale handshake files at startup, so a restart begins fresh at seq 0.
 | [mloop_stub_server.py](mloop_stub_server.py) | terminal | Hardware-free stand-in for the ARTIQ side (synthetic cost) for dry-runs. |
 | [opt_stages/](opt_stages/)`*.json` | — | Per-stage param names, bounds, first values, controller settings. |
 | [OPTIMIZER_TESTS.md](OPTIMIZER_TESTS.md) | — | Ordered bring-up / test checklist. |
-| [../Classes/CoolingClass.py](../Classes/CoolingClass.py) | — | Additive hooks: `record_rmot_ramp_arg`, `record_sf_stage_arg`; `rmot_pulse(bb_dur, att_blue, att_red)`; single-frequency stage as the re-recordable `rmot_sf` DMA trace; capture knobs promoted to GUI args. |
+| [../Classes/CoolingClass.py](../Classes/CoolingClass.py) | — | `rmot_pulse()` reads every per-shot value from `self.*`; `prepare_cooling()` recomputes all ramp arrays; `_dma_record()` records `rmot_ramp` / `rmot_sf` / field ramps from `self.*`. |
 | [../Classes/rois.json](../Classes/rois.json) | — | `lattice_load` ROI scheme (the count region). |
 
 <a name="one-shot"></a>
 ## 4. One shot: what actually happens
 
-`do_shot` (kernel), driven from the host loop for every candidate and every
-reference shot:
+Everything runs through one function, `TransferOptimizer_exp.shot(**overrides)`:
+
+```python
+counts = self.shot(freq_high_i=180.0e6, rmot_sf_duration=0.03)  # override any subset
+counts = self.shot(**candidate)                                 # M-LOOP candidate dict
+counts = self.shot()                                            # pure DEFAULTS (baseline)
+```
+
+`shot()` (host) merges `{**DEFAULTS, **overrides}`, pushes each value onto its
+owner (`_push`: a `_Cooling` attribute, else an optimizer attribute like
+`hold_time`), recomputes every ramp array with `prepare_cooling()`, then runs the
+kernel `_shot_kernel`:
 
 ```
-rmot_pulse(bb_dur, att_blue, att_red)           # lattice/dipole already ON; loads atoms
+_dma_record()                                   # re-record rmot_ramp / rmot_sf / field ramps from self.*
+rmot_pulse()                                    # lattice/dipole already ON; loads atoms
 delay(hold_time)                                # shallow trap: hot atoms leave
-take_MOT_image(Camera)                          # existing fluorescence imaging
+take_MOT_image(Camera)                          # fluorescence imaging
 process_image(return_ports=["lattice"]) -> counts   # sum of the lattice_load ROI
 ```
 
-`hold_time`, the trap depth, and which traps are on (`bragg_switches`, default
-`0x9` = dipole+lattice) are **fixed configuration you set** — the optimizer does
-not touch them. The returned `counts` is the raw objective; the host divides it
-by the current reference to form the cost.
+The trap depth and which traps are on (`BRAGG_SWITCHES`, default `0x9` =
+dipole+lattice) are fixed config. The returned `counts` is the raw objective; the
+host divides it by the current reference to form the cost.
 
 <a name="parameters"></a>
 ## 5. Parameters
 
-The ARTIQ side knows how to apply any parameter listed in the `PARAM_ATTR`
-registry in [TransferOptimizer.py](TransferOptimizer.py). *Which* of them are
-actually varied is decided by each stage JSON's `param_names`; anything not named
-stays at its GUI/base value.
+**`DEFAULTS`** (a dict at the top of [TransferOptimizer.py](TransferOptimizer.py))
+is the single list of every experiment variable and its default. Its keys are
+`_Cooling` attribute names (plus `hold_time`). To change a baseline, edit
+`DEFAULTS`. To override per shot, pass keyword args to `shot()`. *Which* variables
+M-LOOP actually varies is decided by `red_mot.json`'s `param_names`; anything not
+named stays at its `DEFAULTS` value.
 
-**How each is applied:**
+**How it's applied (all uniform now):** `shot()` sets every value with
+`setattr` onto `self.MOTs` (or `self`), calls `prepare_cooling()` to recompute the
+host ramp arrays, and `_shot_kernel` calls `_Cooling._dma_record()` to re-record
+the DMA traces (`rmot_ramp`, `rmot_sf`, field ramps). The ramp arrays are read in
+the kernel as **`self.*` attributes, never passed as kernel arguments** — ARTIQ's
+compiler serializes a list *argument* element-by-element into one synthesized
+source line, and thousands of ramp points overflow LLVM's 16-bit debug-info column
+(`value for 'column' too large`). This ARTIQ recompiles every top-level kernel
+call regardless, so there is no attribute-vs-argument performance tradeoff — only
+the overflow to avoid.
 
-- **DMA-baked** (compression sweep: `freq_high_i`, `freq_high_f`, `span_i`,
-  `span_f`, `ramp_tau`, `rmot_scan_frequency`, `atten_ramp_i`, `atten_ramp_f`,
-  `rmot_bb_current`, `rmot_sf_current`, `rmot_ramp_duration`; single-frequency
-  stage: `rmot_sf_freq_i`, `rmot_sf_freq_f`, `rmot_sf_atten_i`, `rmot_sf_atten_f`,
-  `rmot_sf_duration`; capture/field: `bmot_current`, `bmot_ramp_duration`, `binc`,
-  `blue_transfer_time`, `to_bb_time`, `blue_att_i`, `blue_att_f`): set on the host,
-  the arrays are recomputed by `_prepare_rmot_ramp` / `_prepare_sf_stage` /
-  `_prepare_coils`, and `_rerecord_dma` re-records the DMA traces (`rmot_ramp`,
-  `rmot_sf`, field ramps) by calling `_Cooling._dma_record()`, which reads those
-  `self.MOTs.*` arrays. They are read as **attributes, not kernel arguments** —
-  ARTIQ's compiler serializes a list *argument* element-by-element into one
-  synthesized source line, and thousands of ramp points overflow LLVM's 16-bit
-  debug-info column (`value for 'column' too large`). Reading them as attributes
-  (embedded by object reference) avoids that. Note: this ARTIQ recompiles every
-  top-level kernel call regardless, so attribute vs argument is purely about the
-  column-overflow, not compile count.
-- **Kernel-arg** (`NO_SETATTR`: `rmot_bb_duration`→`bb_dur`,
-  `atten_3D`→`att_blue`, `atten_3D_red`→`att_red`): forwarded straight to
-  `rmot_pulse` as arguments (never written to `self`, which would recompile).
-
-**Fixed, not optimized:**
-- `bmot_load_duration` — pinned once at run start to `bmot_load_duration_fixed`
-  (default 0.5 s).
-- `shape_freq`, `shape_atten` — categorical; M-LOOP is continuous-only, so these
-  stay on their GUI value.
+**Categorical / non-optimized:**
+- `shape_freq`, `shape_atten` — categorical; M-LOOP is continuous-only. Set them
+  in `DEFAULTS` (they still take effect); just don't list them in `red_mot.json`.
+- `bmot_load_duration` — a `DEFAULTS` entry (0.5 s); set it, leave it out of the
+  optimized set.
 - Blue-MOT / blue→red capture knobs (`bmot_current`, `binc`, `blue_att_i/f`,
-  `blue_transfer_time`, `to_bb_time`, `atten_3D`, …) remain in the registry but are
-  **not** in `red_mot.json`, so they stay on their GUI value. Add them to
+  `blue_transfer_time`, `to_bb_time`, `atten_3D`, …) are in `DEFAULTS` but **not**
+  in `red_mot.json`, so they stay on their `DEFAULTS` value. Add them to
   `param_names` if you want to optimize them later.
 
 **Units** (must match the stage JSON): frequencies **Hz**, currents/fields **A**
@@ -184,14 +185,13 @@ moved the optimum.
 **Prerequisite (once):** `pip install M-LOOP` in your ARTIQ Python env.
 
 **Per campaign:**
-1. In the ARTIQ dashboard, open **`TransferOptimizer`** and set the `Optimizer`
-   argument group:
-   - `stage_name` = `red_mot` (names the checkpoint files),
-   - `handshake_dir` and `checkpoint_dir` (must match the driver's flags),
-   - `hold_time`, `camera_rearm_chunk`, `reference_every_N`,
-     `drift_threshold_pct`, `bmot_load_duration_fixed`, `bragg_switches`.
-   - In the `Detection` group set **`ROI_Scheme = lattice_load`**, and make sure
-     the `lattice_load` box in [../Classes/rois.json](../Classes/rois.json) is
+1. Edit the two blocks at the top of [TransferOptimizer.py](TransferOptimizer.py):
+   - `CONFIG` — `HANDSHAKE_DIR` / `CHECKPOINT_DIR` (must match the driver's flags),
+     `STAGE_NAME`, `REFERENCE_EVERY_N`, `DRIFT_THRESHOLD_PCT`, `CAMERA_REARM_CHUNK`,
+     `BRAGG_SWITCHES`.
+   - `DEFAULTS` — baseline for every experiment variable (incl. `hold_time`).
+   - In the `Detection` group (Camera) set **`ROI_Scheme = lattice_load`**, and make
+     sure the `lattice_load` box in [../Classes/rois.json](../Classes/rois.json) is
      tight on the trapped cloud.
    - Put up your fixed **shallow** trap by hand.
 2. **Submit** `TransferOptimizer` and **start the driver** — in either order (the
@@ -295,14 +295,17 @@ bottom is `(freq_high - span)`; keep `span` ≤ the top so the sweep does not in
 Infeasible candidates are auto-flagged `bad`, not fatal — but tight bounds waste
 fewer shots.
 
-**Add a parameter to a stage:** if it's already in `PARAM_ATTR`, just add its
-name + bounds to the stage JSON. If it's a brand-new knob, add it to `PARAM_ATTR`
-(and to `NO_SETATTR` if it should be forwarded to `rmot_pulse` as a kernel arg
-rather than baked into DMA).
+**Add a parameter to the optimized set:** if it's already a `DEFAULTS` key, just
+add its name + bounds to `red_mot.json`. If it's a brand-new knob, add it to
+`DEFAULTS` (key = the `_Cooling` attribute name) — `shot()` will set it and, if
+it feeds a ramp, `prepare_cooling()` will pick it up automatically.
 
 **Change the objective:** the cost is formed in `run()` from the `lattice` ROI
-count. To use a different signal (e.g. a ratio of two ROIs, or a Gaussian-fit
-amplitude), change what `do_shot` returns / how `cost` is computed there.
+count. To use a different signal, change what `_shot_kernel` returns / how `cost`
+is computed in `run()`.
+
+**Test a parameter set by hand (no M-LOOP):** call `self.shot(...)` directly, e.g.
+add a scratch experiment that runs `self.shot(freq_high_i=180e6, hold_time=0.02)`.
 
 **Controller choice:** in the stage JSON, `controller_type` can be
 `gaussian_process` (sample-efficient, default), `differential_evolution`
@@ -322,7 +325,7 @@ In the **handshake dir**:
 
 **Start a stage:**
 ```
-# 1) submit TransferOptimizer in the dashboard (stage_name + dirs + ROI set)
+# 1) edit CONFIG (dirs) + DEFAULTS in TransferOptimizer.py, set ROI, submit it
 # 2) then:
 python mloop_optimize.py --stage opt_stages/red_mot.json \
     --handshake "<dir>" --checkpoint "<dir>"
@@ -333,8 +336,8 @@ python mloop_optimize.py --stage opt_stages/red_mot.json \
 **Resume:** rerun the same driver command; submit the experiment again first.
 
 **Common gotchas:** driver `TimeoutError` → experiment not running / wrong
-handshake dir / drift-paused. Counts always ~0 → wrong `lattice_load` ROI or
-`ROI_Scheme`, trap off, or `hold_time` too long. Loop feels slow → a tunable is
-being written to `self.*` and read in a kernel (should be in `PARAM_ATTR` /
-`NO_SETATTR`). See [OPTIMIZER_TESTS.md](OPTIMIZER_TESTS.md) for the full
-troubleshooting list.
+handshake dir (`CONFIG.HANDSHAKE_DIR` ≠ driver flag) / drift-paused. Counts always
+~0 → wrong `lattice_load` ROI or `ROI_Scheme`, trap off, or `hold_time` too long.
+`KeyError: 'DEFAULTS key ...'` at prepare → a `DEFAULTS` key is not a `_Cooling`/
+optimizer attribute (typo). See [OPTIMIZER_TESTS.md](OPTIMIZER_TESTS.md) for the
+full troubleshooting list.

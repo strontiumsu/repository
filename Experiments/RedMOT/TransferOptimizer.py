@@ -2,44 +2,39 @@
 """
 TransferOptimizer.py
 
-ARTIQ "optimizer server" for closed-loop optimization of the
-blue MOT -> red MOT -> 813 lattice transfer.
+ARTIQ "optimizer server" for closed-loop optimization of the red MOT (broadband
+-> compression -> single-frequency) load into the 813 lattice.
 
-Role in the system
--------------------
-This experiment does NOT contain an optimizer. It is a long-lived ARTIQ
-experiment that:
-  1. keeps the kernel warm and the DMA traces resident (no per-iteration
-     resubmit/recompile),
-  2. receives a candidate parameter set from an external M-LOOP process through
-     a small JSON file handshake,
-  3. applies those parameters (re-recording the affected DMA traces from
-     *arguments* so the kernel does not recompile),
-  4. runs one `rmot_pulse` shot, holds, images, and counts the atoms retained in
-     the (fixed, already-on) shallow 813 lattice ROI,
-  5. interleaves a fixed "reference" shot to normalize slow drift, auto-pausing
-     if the reference drifts too far,
-  6. checkpoints every shot so a restabilize-and-restart warms up from prior data,
-  7. writes the (normalized) cost back for M-LOOP.
+The whole experiment is driven through ONE clean entry point:
 
-The optimizer loop is owned by the external process; see `mloop_optimize.py`.
+    counts = self.shot(**overrides)
 
-Handshake protocol (files in `handshake_dir`)
---------------------------------------------
+`shot()` takes any subset of the experiment variables (everything else falls back
+to DEFAULTS), pushes them into the hardware, runs a single rmot_pulse shot, images,
+and returns the lattice-ROI counts. All the attribute / DMA / ramp plumbing is
+hidden inside it. To try something by hand:
+
+    self.shot(freq_high_i=180.0e6, rmot_sf_duration=0.03)
+
+Two editable blocks live at the top of this file:
+  * CONFIG   — operational settings (handshake dirs, drift, camera, ...).
+  * DEFAULTS — every experiment variable and its default value.
+
+The M-LOOP server loop below is a thin wrapper: it receives a candidate parameter
+set from an external M-LOOP process over a JSON file handshake, calls
+`shot(**candidate)`, normalizes against an interleaved reference shot, and writes
+the cost back. The optimizer loop itself is owned by `mloop_optimize.py`.
+
+Handshake protocol (files in HANDSHAKE_DIR)
+-------------------------------------------
   request_<seq>.json     {"seq": int, "params": {name: value}, "stop": bool}
   response_<seq>.json    {"seq": int, "cost": float, "uncer": float, "bad": bool}
   STOP                   (touch to end the run cleanly)
   REBASELINE             (touch to accept a drifted baseline and resume)
-Both requests and responses use PER-SEQ filenames (never a single shared name):
-the reader finds the newest via a directory listing and opens each file exactly
-once, after it is fully written, so the writer never renames over a file the
-reader holds open — this avoids the Windows rename/open ("Access is denied")
-collision that a single reused name causes. Writes are temp-file + os.replace.
+Per-seq filenames + temp-file/os.replace avoid the Windows rename/open collision a
+single shared name causes.
 
 Cost convention: M-LOOP MINIMIZES, so cost = -(candidate_counts / reference).
-
-NOTE: values marked <FILL ...> (paths, ROI, hold time, camera chunk, bounds) are
-placeholders for you to set. See OPTIMIZER_TESTS.md.
 """
 
 import os
@@ -50,22 +45,86 @@ from pathlib import Path
 import numpy as np
 
 from artiq.experiment import (  # pyright: ignore[reportMissingImports]
-    EnvExperiment, kernel, delay, ms, now_mu,
-    NumberValue, StringValue, TInt32,
+    EnvExperiment, kernel, delay, ms, now_mu, TInt32,
 )
 
-from CoolingClass import (  # pyright: ignore[reportMissingImports]
-    _Cooling,
-)
-from CameraClass import _Camera  # pyright: ignore[reportMissingImports]
-from BraggClass import _Bragg    # pyright: ignore[reportMissingImports]
+from CoolingClass import _Cooling  # pyright: ignore[reportMissingImports]
+from CameraClass import _Camera    # pyright: ignore[reportMissingImports]
+from BraggClass import _Bragg      # pyright: ignore[reportMissingImports]
+
+
+# =========================================================================
+# CONFIG — operational settings (edit here; not optimized)
+# =========================================================================
+# Dirs MUST match the --handshake / --checkpoint flags passed to mloop_optimize.py.
+HANDSHAKE_DIR   = r"C:\Users\sr\Documents\Artiq\ARTIQ_opt"
+CHECKPOINT_DIR  = r"C:\Users\sr\Documents\Artiq\ARTIQ_opt"
+STAGE_NAME      = "red_mot"     # names the checkpoint / progress files
+BRAGG_SWITCHES  = 0x9           # dipole (bit0) + lattice (bit3) on for the shot
+
+REFERENCE_EVERY_N   = 5         # take an interleaved reference shot every N candidates
+DRIFT_THRESHOLD_PCT = 15.0      # pause if the reference EMA drifts beyond this
+REF_SETTLE_SHOTS    = 3         # baseline reference shots at start
+CAMERA_REARM_CHUNK  = 50        # re-arm the camera every this many frames
+IDLE_TIMEOUT_S      = 600.0     # stop if no request arrives for this long
+POLL_S              = 0.05      # request-poll interval
+PAUSE_POLL_S        = 2.0       # reference-poll interval while paused on drift
+
+
+# =========================================================================
+# DEFAULTS — every experiment variable + default value (edit / override here)
+# =========================================================================
+# Override any subset per shot:  self.shot(freq_high_i=180e6, rmot_sf_duration=0.03)
+# Keys are _Cooling attribute names (plus hold_time). Set winners here to lock them
+# in as the new baseline. Units: frequencies Hz, currents/fields A (DAC volts),
+# durations seconds, VVA atten DAC volts (0-9.99), Urukul atten dB.
+DEFAULTS = {
+    # --- Blue MOT + blue->red capture ---
+    "bmot_current":        5.0,
+    "bmot_ramp_duration":  50e-3,
+    "bmot_load_duration":  0.5,
+    "binc":                1.0,
+    "blue_transfer_time":  50e-3,
+    "blue_att_i":          6.0,
+    "blue_att_f":          30.0,
+    # --- Broadband red MOT + ramp-to-broadband ---
+    "rmot_bb_current":     0.4,
+    "rmot_bb_duration":    50e-3,
+    "to_bb_time":          15e-3,
+    # --- Compression sweep ---
+    "freq_high_i":         180.5e6,   # swept top of the modulation-depth sweep, start
+    "freq_high_f":         180.0e6,   # swept top, end
+    "span_i":              6.0e6,     # modulation depth below the top, start
+    "span_f":              1.1e6,     # modulation depth, end
+    "atten_ramp_i":        9.99,      # VVA (external) atten ramp, start (DAC V)
+    "atten_ramp_f":        0.10,      # VVA atten ramp, end
+    "ramp_tau":            0.5,       # shape time-constant for exp/expinv shapes
+    "rmot_scan_frequency": 30e3,      # DRG modulation frequency
+    "rmot_ramp_duration":  85e-3,
+    "rmot_sf_current":     2.0,
+    "shape_freq":          "lin",     # freq-span shape (categorical; set by hand)
+    "shape_atten":         "exp",     # VVA-atten shape (categorical; set by hand)
+    # --- Single-frequency stage (Urukul RF atten stepped) ---
+    "rmot_sf_freq_i":      180.0e6,
+    "rmot_sf_freq_f":      180.0e6,
+    "rmot_sf_atten_i":     9.0,       # dB
+    "rmot_sf_atten_f":     9.0,       # dB
+    "rmot_sf_duration":    25e-3,
+    # --- Beam power + imaging ---
+    "atten_3D":            6.0,       # 3D blue AOM atten (dB)
+    "atten_3D_red":        9.0,       # 3D red AOM atten (dB)
+    "freq_3D":             180.0e6,   # 3D blue MOT-loading frequency
+    "f_MOT3D_detect":      180.0e6,   # 3D blue imaging frequency
+    "Detection_pulse_time": 0.02e-3,  # imaging pulse length
+    # --- Optimizer shot ---
+    "hold_time":           30e-3,     # shallow-lattice hold: hot atoms escape (the T proxy)
+}
 
 
 def _atomic_replace(tmp, dst, retries=100, delay=0.02):
     """os.replace() with retry. On Windows the rename raises PermissionError/
     OSError if another process (the M-LOOP driver polling response files) has
-    `dst` open at that instant; retry until its short-lived handle is released
-    (up to retries*delay seconds)."""
+    `dst` open at that instant; retry until its short-lived handle is released."""
     last = None
     for _ in range(retries):
         try:
@@ -99,158 +158,91 @@ def _max_index(progress_path, key, default):
 class TransferOptimizer_exp(EnvExperiment):
 
     # ------------------------------------------------------------------
-    # parameter registry: optimizer-name -> _Cooling attribute
-    # ------------------------------------------------------------------
-    # Every name M-LOOP might optimize must appear here so apply() knows how to
-    # set it. Units are SI and match the _Cooling attributes: frequencies in Hz,
-    # currents/fields in A (DAC volts), durations in seconds. Categorical knobs
-    # (shape_freq / shape_atten) are intentionally excluded — M-LOOP optimizes
-    # continuous parameters only; leave those on their GUI value.
-    PARAM_ATTR = {
-        # --- compression sweep (DMA-baked: re-precompute + re-record) ---
-        "freq_high_i":         "freq_high_i",         # swept top of the sweep, start
-        "freq_high_f":         "freq_high_f",         # swept top of the sweep, end
-        "span_i":              "span_i",              # modulation depth (below top), start
-        "span_f":              "span_f",              # modulation depth (below top), end
-        "ramp_tau":            "ramp_tau",
-        "rmot_scan_frequency": "rmot_scan_frequency",
-        "atten_ramp_i":        "atten_ramp_i",
-        "atten_ramp_f":        "atten_ramp_f",
-        "rmot_bb_current":     "rmot_bb_current",
-        "rmot_sf_current":     "rmot_sf_current",
-        "rmot_ramp_duration":  "rmot_ramp_duration",
-        # --- single-frequency stage (DMA-baked "rmot_sf": re-precompute + re-record) ---
-        "rmot_sf_freq_i":      "rmot_sf_freq_i",      # sf tone frequency, start
-        "rmot_sf_freq_f":      "rmot_sf_freq_f",      # sf tone frequency, end
-        "rmot_sf_atten_i":     "rmot_sf_atten_i",     # sf Urukul RF attenuation, start (dB)
-        "rmot_sf_atten_f":     "rmot_sf_atten_f",     # sf Urukul RF attenuation, end (dB)
-        "rmot_sf_duration":    "rmot_sf_duration",    # sf stage length (sets the trace point count)
-        # --- field ramps + blue->red capture handoff (DMA-baked) ---
-        "bmot_current":        "bmot_current",
-        "bmot_ramp_duration":  "bmot_ramp_duration",
-        "binc":                "binc",                # extra capture coil boost
-        "blue_transfer_time":  "blue_transfer_time",  # blue capture ramp duration
-        "to_bb_time":          "to_bb_time",          # ramp-to-broadband duration
-        "blue_att_i":          "blue_att_i",          # blue capture atten start (dB)
-        "blue_att_f":          "blue_att_f",          # blue capture atten end (dB)
-        # --- cheap: forwarded to rmot_pulse as kernel args (see NO_SETATTR) ---
-        "rmot_bb_duration":    "rmot_bb_duration",    # -> bb_dur
-        "atten_3D":            "atten_3D",            # -> att_blue (3D blue power)
-        "atten_3D_red":        "atten_3D_red",        # -> att_red  (3D red power)
-    }
-
-    # Names NOT written onto self.MOTs — instead forwarded to rmot_pulse as
-    # kernel *arguments* (writing them would recompile rmot_pulse each iteration).
-    # rmot_sf_duration is NOT here: the single-frequency stage is now a re-recorded
-    # DMA trace ("rmot_sf"), so its length is DMA-baked like the compression sweep.
-    # bmot_load_duration is intentionally absent: it is held fixed (see build /
-    # run) at bmot_load_duration_fixed, not optimized.
-    NO_SETATTR = ("rmot_bb_duration", "atten_3D", "atten_3D_red")
-
-    # ------------------------------------------------------------------
-    # build
+    # build — devices + child controllers + operational config
     # ------------------------------------------------------------------
     def build(self):
         self.setattr_device("core")
         self.setattr_device("core_dma")
         self.setattr_device("scheduler")
 
-        # composed hardware controllers (reused unchanged)
+        # composed hardware controllers
         self.MOTs = _Cooling(self)
         self.Bragg = _Bragg(self)     # only to init the lattice/dipole AOMs on
         self.Camera = _Camera(self)
 
-        g = "Optimizer"
-        self.setattr_argument("stage_name", StringValue("red_mot"), g)
-        self.setattr_argument("handshake_dir",
-                              StringValue(r"C:\Users\sr\Documents\Artiq\ARTIQ_opt"), g)
-        self.setattr_argument("checkpoint_dir",
-                              StringValue(r"C:\Users\sr\Documents\Artiq\ARTIQ_opt"), g)
-        self.setattr_argument("reference_every_N",
-                              NumberValue(5, min=1, max=1000, ndecimals=0, step=1), g)
-        self.setattr_argument("drift_threshold_pct",
-                              NumberValue(15.0, min=1.0, max=100.0, ndecimals=1), g)
-        self.setattr_argument("ref_settle_shots",
-                              NumberValue(3, min=1, max=50, ndecimals=0, step=1), g)
-        self.setattr_argument("hold_time",
-                              NumberValue(30e-3, min=0.0, max=2.0, scale=1e-3, unit="ms"), g)
-        # bmot_load_duration is held FIXED (not optimized) at this value.
-        self.setattr_argument("bmot_load_duration_fixed",
-                              NumberValue(0.5, min=0.01, max=9.0, scale=1e-3, unit="ms"), g)
-        self.setattr_argument("camera_rearm_chunk",
-                              NumberValue(50, min=2, max=5000, ndecimals=0, step=1), g)
-        self.setattr_argument("idle_timeout_s",
-                              NumberValue(600.0, min=10.0, max=1e6, unit="s"), g)
-        self.setattr_argument("poll_s",
-                              NumberValue(0.05, min=0.005, max=1.0, ndecimals=3), g)
-        self.setattr_argument("pause_poll_s",
-                              NumberValue(2.0, min=0.1, max=60.0, ndecimals=1), g)
+        # operational config (edit the CONFIG block above). Kept as plain
+        # attributes so the M-LOOP server helpers can read self.<name>.
+        self.stage_name = STAGE_NAME
+        self.handshake_dir = HANDSHAKE_DIR
+        self.checkpoint_dir = CHECKPOINT_DIR
+        self.reference_every_N = REFERENCE_EVERY_N
+        self.drift_threshold_pct = DRIFT_THRESHOLD_PCT
+        self.ref_settle_shots = REF_SETTLE_SHOTS
+        self.camera_rearm_chunk = CAMERA_REARM_CHUNK
+        self.idle_timeout_s = IDLE_TIMEOUT_S
+        self.poll_s = POLL_S
+        self.pause_poll_s = PAUSE_POLL_S
 
     # ------------------------------------------------------------------
     # prepare (host)
     # ------------------------------------------------------------------
     def prepare(self):
+        # push DEFAULTS so init_all() below records DMA consistent with them
+        self._push(DEFAULTS)
+
+        # fail fast on a typo'd DEFAULTS key (must be a real settable variable)
+        for k in DEFAULTS:
+            if not (hasattr(self.MOTs, k) or hasattr(self, k)):
+                raise KeyError(
+                    "DEFAULTS key '{0}' is not a _Cooling or optimizer attribute".format(k))
+
         self.MOTs.prepare_cooling()
         self.Bragg.prepare_aoms()
 
-        # coerce the integer-valued GUI floats
-        self.reference_every_N = int(self.reference_every_N)
-        self.ref_settle_shots = int(self.ref_settle_shots)
-        self.camera_rearm_chunk = int(self.camera_rearm_chunk)
-
-
         # camera: ROI_Scheme (Detection group) MUST be set to "lattice_load".
-        # Arm in chunks; the host loop re-arms as needed.
         self.Camera.camera_init(N=self.camera_rearm_chunk + 2)
 
-        # host-side loop state (created here so kernel type-inference is stable)
-        self._blue_down_mu = [np.int32(0)]
+        # host-side loop state
         self._best_cost = None
         self._last_seq = -1
         self._frames_since_arm = 0
         self._current_ref = 1.0
         self._ref_baseline = 1.0
 
-    # ------------------------------------------------------------------
-    # kernel: one-time init
-    # ------------------------------------------------------------------
-    @kernel
-    def init_all(self):
-        self.core.reset()
-        self.MOTs.init_cooling()                      # ttls, coils, aoms, DMA record
-        self.Bragg.init_aoms()  # lattice + dipole ON
-        delay(10 * ms)
-        self.MOTs.take_background_image_exp(self.Camera)
-        self.core.break_realtime()
+    # ==================================================================
+    # SHOT ENGINE — the one clean entry point
+    # ==================================================================
+    def _push(self, params):
+        """Set every variable in `params` onto its owner: a _Cooling attribute if
+        one exists by that name, else an optimizer attribute (e.g. hold_time)."""
+        for k, v in params.items():
+            tgt = self.MOTs if hasattr(self.MOTs, k) else self
+            setattr(tgt, k, v)
 
-    # ------------------------------------------------------------------
-    # kernel: re-record every DMA trace this pulse plays back.
-    #
-    # This reuses _Cooling._dma_record() — the EXACT recording path init_cooling
-    # runs — reading the freshly recomputed self.MOTs.* ramp arrays as attributes
-    # (embedded by object reference). The arrays are deliberately NOT passed as
-    # kernel arguments: ARTIQ's quote() serializes a list argument element-by-
-    # element onto a single synthesized source line, and the thousands of ramp
-    # points overflow LLVM's 16-bit debug-info column, i.e.
-    #   RuntimeError: LLVM IR parsing error / value for 'column' too large.
-    # (Core.run recompiles every top-level kernel call in this ARTIQ regardless,
-    # so reading self.* rather than args costs no extra compiles.)
-    # ------------------------------------------------------------------
-    @kernel
-    def _rerecord_dma(self):
-        self.MOTs._dma_record()   # record_rmot_ramp + record_field_ramps + rmot_sf
+    def shot(self, **overrides):
+        """Run ONE shot: DEFAULTS overridden by `overrides`, return lattice counts.
 
-    # ------------------------------------------------------------------
-    # kernel: one measurement shot -> lattice-ROI counts
-    # All per-shot tunables arrive as arguments -> no recompile between shots.
-    # ------------------------------------------------------------------
+        e.g.  self.shot(freq_high_i=180.0e6, rmot_sf_duration=0.03)
+              self.shot(**candidate)          # M-LOOP candidate dict
+        """
+        self._push({**DEFAULTS, **overrides})
+        self.MOTs.prepare_cooling()          # host: recompute every ramp array
+        self._ensure_camera()
+        counts = int(self._shot_kernel())    # kernel: re-record DMA + pulse + image
+        self._frames_since_arm += 1
+        return counts
+
     @kernel
-    def do_shot(self, bb_dur, att_blue, att_red, hold_time) -> TInt32:
-        # lattice/dipole are already on (from init); rmot_pulse loads into them.
-        self.MOTs.rmot_pulse(bb_dur=bb_dur,
-                             att_blue=att_blue, att_red=att_red)
-        delay(hold_time)                      # shallow lattice: hot atoms escape
-        self.MOTs.take_MOT_image(self.Camera)  # existing fluorescence imaging
+    def _shot_kernel(self) -> TInt32:
+        # lattice/dipole are already on (from init_all); rmot_pulse loads into them.
+        # _dma_record re-records every trace from the self.MOTs.* arrays just
+        # recomputed by prepare_cooling(). The arrays are read as attributes, NOT
+        # passed as kernel args (a large list argument overflows ARTIQ's debug-info
+        # column limit). This ARTIQ recompiles every kernel call regardless.
+        self.MOTs._dma_record()
+        self.MOTs.rmot_pulse()
+        delay(self.hold_time)                          # shallow lattice: hot atoms escape
+        self.MOTs.take_MOT_image(self.Camera)          # fluorescence imaging
         delay(10 * ms)
         self.core.wait_until_mu(now_mu())
         ports = self.Camera.process_image(save=False, bg_sub=True,
@@ -258,6 +250,18 @@ class TransferOptimizer_exp(EnvExperiment):
         self.core.break_realtime()
         delay(10 * ms)
         return ports[0]
+
+    # ------------------------------------------------------------------
+    # kernel: one-time init
+    # ------------------------------------------------------------------
+    @kernel
+    def init_all(self):
+        self.core.reset()
+        self.MOTs.init_cooling()                       # ttls, coils, aoms, DMA record
+        self.Bragg.init_aoms(switches=BRAGG_SWITCHES)  # lattice + dipole ON
+        delay(10 * ms)
+        self.MOTs.take_background_image_exp(self.Camera)
+        self.core.break_realtime()
 
     @kernel
     def _finish_k(self):
@@ -267,25 +271,17 @@ class TransferOptimizer_exp(EnvExperiment):
         self.core.break_realtime()
 
     # ==================================================================
-    # HOST control loop
+    # M-LOOP SERVER — thin loop around shot()
     # ==================================================================
     def run(self):
         self._init_paths()
-        # hold bmot_load_duration fixed (not optimized). Set once, before any
-        # kernel compiles, so rmot_pulse bakes in this constant and never
-        # recompiles for it.
-        self.MOTs.bmot_load_duration = float(self.bmot_load_duration_fixed)
         self.init_all()
 
-        # baseline / reference parameter set = current GUI values
-        self._base_params = self._snapshot_base()
-        self._current_full = dict(self._base_params)
-
-        # establish the drift-normalization baseline
+        # establish the drift-normalization baseline (a DEFAULTS shot)
         print("[baseline] measuring reference over {0} shot(s)...".format(self.ref_settle_shots))
         vals = []
         for j in range(self.ref_settle_shots):
-            c = self._shoot(self._base_params)
+            c = self.shot()
             vals.append(c)
             print("[baseline] shot {0}/{1}: counts={2}".format(j + 1, self.ref_settle_shots, c))
         self._ref_baseline = max(1.0, float(np.mean(vals)))
@@ -312,18 +308,16 @@ class TransferOptimizer_exp(EnvExperiment):
                     print("TransferOptimizer: stop requested, stopping.")
                     break
 
-                # merge active params onto the running full set, then measure
-                for k, v in req["params"].items():
-                    self._current_full[k] = float(v)
+                overrides = {k: float(v) for k, v in req["params"].items()}
                 print("\n[iter {0} | seq {1}] shot params: {2}".format(
-                    it + 1, int(req["seq"]), self._fmt_params(req["params"])))
+                    it + 1, int(req["seq"]), self._fmt_params(overrides)))
 
                 # Guard the candidate: an out-of-range combination (e.g. a coil
                 # setpoint > MAX_CURRENT trips _build_field_ramp's assertion) or
                 # any transient error must NOT crash the campaign — report a bad
                 # run so M-LOOP learns the region is infeasible and moves on.
                 try:
-                    counts = self._shoot(self._current_full)
+                    counts = self.shot(**overrides)
                 except Exception as e:
                     print("[iter {0} | seq {1}] INVALID/failed shot: {2} -> bad".format(
                         it + 1, int(req["seq"]), e))
@@ -335,7 +329,7 @@ class TransferOptimizer_exp(EnvExperiment):
 
                 # interleaved reference + drift monitor
                 if it % self.reference_every_N == 0:
-                    ref = self._shoot(self._base_params)
+                    ref = self.shot()
                     self._current_ref = 0.5 * self._current_ref + 0.5 * max(1.0, float(ref))
                     drift = (self._current_ref - self._ref_baseline) / self._ref_baseline
                     self.set_dataset("opt.reference", self._current_ref, broadcast=True)
@@ -350,7 +344,7 @@ class TransferOptimizer_exp(EnvExperiment):
                 uncer = (float(counts) ** 0.5) / self._current_ref if counts > 0 else 1.0
                 print("[iter {0} | seq {1}] counts={2} ref={3:.1f} cost={4:+.4f} bad={5}".format(
                     it, int(req["seq"]), int(counts), self._current_ref, cost, bad))
-                self._checkpoint(int(req["seq"]), req["params"], int(counts),
+                self._checkpoint(int(req["seq"]), overrides, int(counts),
                                  self._current_ref, cost, it)
                 self._write_response(int(req["seq"]), cost, uncer, bad)
         finally:
@@ -361,44 +355,17 @@ class TransferOptimizer_exp(EnvExperiment):
                 print("TransferOptimizer: finish cleanup skipped:", e)
 
     # ------------------------------------------------------------------
-    # host helpers: apply + shoot
+    # host helpers
     # ------------------------------------------------------------------
     @staticmethod
     def _fmt_params(d):
         # compact one-line summary of a {name: value} dict for the ARTIQ terminal
-        return ", ".join("{0}={1:.6g}".format(k, float(v)) for k, v in d.items())
-
-    def _shoot(self, full):
-        """Apply `full`, re-record DMA, run one shot, return lattice counts."""
-        bb, ab, ar = self._apply(full)
-        self._ensure_camera()
-        counts = int(self.do_shot(bb, ab, ar, float(self.hold_time)))
-        self._frames_since_arm += 1
-        return counts
-
-    def _apply(self, full):
-        """Host: set attributes + recompute ramps; kernel: re-record DMA.
-        Returns (bb_dur, att_blue, att_red) to pass to do_shot."""
-        for name, val in full.items():
-            if name in self.NO_SETATTR:
-                continue                      # forwarded as kernel arg, not attr
-            setattr(self.MOTs, self.PARAM_ATTR[name], float(val))
-
-        # host numpy precompute (fills self.MOTs.* ramp arrays)
-        self.MOTs._prepare_rmot_ramp()
-        self.MOTs._prepare_sf_stage()
-        self.MOTs._prepare_coils()
-
-        # kernel re-record: reads the self.MOTs.* arrays just recomputed above
-        # (see _rerecord_dma for why they are NOT passed as arguments).
-        self._rerecord_dma()
-
-        return (float(full["rmot_bb_duration"]),
-                float(full["atten_3D"]), float(full["atten_3D_red"]))
-
-    def _snapshot_base(self):
-        return {name: float(getattr(self.MOTs, attr))
-                for name, attr in self.PARAM_ATTR.items()}
+        def f(v):
+            try:
+                return "{0:.6g}".format(float(v))
+            except (TypeError, ValueError):
+                return str(v)
+        return ", ".join("{0}={1}".format(k, f(v)) for k, v in d.items())
 
     def _ensure_camera(self):
         # re-arm in chunks; the camera disarms itself after N frames.
@@ -409,9 +376,6 @@ class TransferOptimizer_exp(EnvExperiment):
             self.Camera.arm(N=self.camera_rearm_chunk)
             self._frames_since_arm = 0
 
-    # ------------------------------------------------------------------
-    # host helpers: drift pause
-    # ------------------------------------------------------------------
     def _pause_until_recovered(self):
         self.set_dataset("opt.alert", 1, broadcast=True)
         print("TransferOptimizer: DRIFT ALERT — reference beyond threshold; "
@@ -427,7 +391,7 @@ class TransferOptimizer_exp(EnvExperiment):
                 print("TransferOptimizer: baseline accepted, resuming.")
                 break
             time.sleep(self.pause_poll_s)
-            ref = self._shoot(self._base_params)
+            ref = self.shot()
             self._current_ref = 0.5 * self._current_ref + 0.5 * max(1.0, float(ref))
             drift = (self._current_ref - self._ref_baseline) / self._ref_baseline
             self.set_dataset("opt.reference", self._current_ref, broadcast=True)
@@ -447,9 +411,7 @@ class TransferOptimizer_exp(EnvExperiment):
         self._ckpt.mkdir(parents=True, exist_ok=True)
         self._last_seq = -1
         # start each submission from a clean handshake: drop stale request/
-        # response/control files from a previous or crashed run so we don't act
-        # on an old request or the driver read an old response. (Checkpoints in
-        # checkpoint_dir are preserved for warm-start.)
+        # response/control files from a previous or crashed run.
         stale = (list(self._hs.glob("response_*.json"))
                  + list(self._hs.glob("request_*.json"))
                  + list(self._hs.glob(".request_*.tmp"))
@@ -484,10 +446,8 @@ class TransferOptimizer_exp(EnvExperiment):
         return None
 
     def _poll_request(self):
-        # Requests are per-seq files (request_<seq>.json). We locate the newest via
-        # a directory listing (stat only) and open it EXACTLY ONCE, after it is
-        # fully written — the writer never renames over a file we hold open, so
-        # there is no Windows rename/open collision (unlike a single shared name).
+        # Requests are per-seq files (request_<seq>.json). Locate the newest via a
+        # directory listing and open it EXACTLY ONCE, after it is fully written.
         newest_p = None
         newest_seq = self._last_seq
         for p in self._hs.glob("request_*.json"):
@@ -518,22 +478,22 @@ class TransferOptimizer_exp(EnvExperiment):
         with open(tmp, "w") as f:
             json.dump({"seq": seq, "cost": float(cost),
                        "uncer": float(uncer), "bad": bool(bad)}, f)
-        # retry the rename: on Windows os.replace fails if the driver has the
-        # destination open at that instant (see _atomic_replace docstring).
         _atomic_replace(tmp, dst)
 
-    def _checkpoint(self, seq, params, counts, ref, cost, it):
-        rec = {"seq": seq, "it": it, "ts": time.time(), "params": params,
+    def _checkpoint(self, seq, overrides, counts, ref, cost, it):
+        rec = {"seq": seq, "it": it, "ts": time.time(), "params": overrides,
                "counts": int(counts), "reference": float(ref), "cost": float(cost)}
         with open(self._ckpt / "progress_{0}.jsonl".format(self.stage_name), "a") as f:
             f.write(json.dumps(rec) + "\n")
 
-        # cost is negative; a smaller (more negative) cost is better
+        # cost is negative; a smaller (more negative) cost is better. Save the FULL
+        # param set (DEFAULTS + this shot's overrides) so the winner is reproducible.
         if self._best_cost is None or cost < self._best_cost:
             self._best_cost = cost
+            full = {**DEFAULTS, **overrides}
             with open(self._ckpt / "best_params_{0}.json".format(self.stage_name), "w") as f:
-                json.dump({"cost": float(cost), "counts": int(counts),
-                           "params": dict(self._current_full)}, f, indent=2)
+                json.dump({"cost": float(cost), "counts": int(counts), "params": full},
+                          f, indent=2)
             self.set_dataset("opt.best_cost", float(cost), broadcast=True, persist=True)
             self.set_dataset("opt.best_counts", int(counts), broadcast=True, persist=True)
 

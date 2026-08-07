@@ -243,27 +243,18 @@ class _Cooling(EnvExperiment):
         delay(self.bmot_load_duration) # hold for load duration
     
     @kernel
-    def rmot_pulse(self, dipole_on=True, bb_dur=-1.0,
-                   att_blue=-1.0, att_red=-1.0):
-        # bb_dur (seconds) overrides the broadband hold time, and att_blue /
-        # att_red (dB) override the 3D blue / 3D red AOM attenuations, whenever
-        # the argument is >= 0; a negative value (the default) falls back to the
-        # GUI attribute. This lets an optimizer vary them via kernel arguments
-        # without forcing a recompile. The single-frequency stage is played back
-        # as the re-recordable "rmot_sf" DMA trace (freq/atten/duration all live
-        # in that trace), so no sf_dur argument is needed here.
+    def rmot_pulse(self, dipole_on=True):
+        # Every per-shot value is read from self.* (attenuations, hold times, and
+        # the ramp/sf DMA traces recorded from the self.* arrays). To vary any of
+        # them, set the attribute on this object and re-record the DMA traces
+        # (_dma_record) before calling rmot_pulse. The single-frequency stage is
+        # the re-recordable "rmot_sf" DMA trace (freq/atten/duration baked in).
         self.AOMs_off_all()
         self.set_sweep(0, init=True)  # re-arm the DRG (disabled by the sf trace last pulse)
 
         # ensure powers at at correct power
-        if att_blue >= 0.0:
-            self.aom_3D_blue.set_att(att_blue)
-        else:
-            self.aom_3D_blue.set_att(self.atten_3D)
-        if att_red >= 0.0:
-            self.aom_3D_red.set_att(att_red)
-        else:
-            self.aom_3D_red.set_att(self.atten_3D_red)
+        self.aom_3D_blue.set_att(self.atten_3D)
+        self.aom_3D_red.set_att(self.atten_3D_red)
         self.aom_3D_blue.set_amplitude(0.8)
         self.aom_3D_red.set_amplitude(0.8)
 
@@ -294,10 +285,7 @@ class _Cooling(EnvExperiment):
 
         # ramp field to broad band red mot current and hold
         self.core_dma.playback("field_to_bb")
-        if bb_dur >= 0.0:
-            delay(bb_dur)
-        else:
-            delay(self.rmot_bb_duration)
+        delay(self.rmot_bb_duration)
 
         # turn off repumpers
         self.aom_3P0.sw.off()
@@ -635,38 +623,6 @@ class _Cooling(EnvExperiment):
                 self.set_sweep(i) # sets the frequency sweep params for the DRG, assumes already running
 
                 t += self.rmot_dt_mu
-            at_mu(t)
-        self.core.break_realtime()
-
-    @kernel
-    def record_rmot_ramp_arg(self, upper, lower, step_up, step_dn,
-                             atten_mu, field_mu, n, dt_mu):
-        """Argument-fed twin of record_rmot_ramp().
-
-        Records the "rmot_ramp" DMA trace from data passed as runtime arguments
-        instead of self.* attributes, so an optimizer loop can re-record the
-        compression sweep every iteration WITHOUT triggering a kernel recompile
-        (ARTIQ bakes self.* reads into a kernel as compile-time constants; kernel
-        arguments are runtime values). The DRG frequency-sweep writes are inlined
-        here to mirror set_sweep(i) in its non-init form (assumes the DRG is
-        already running from _init_aoms()). upper/lower/step_up/step_dn/atten_mu/
-        field_mu are per-point lists of length n.
-        """
-        with self.core_dma.record("rmot_ramp"):
-            t = now_mu()
-            for i in range(n):
-                at_mu(t)
-
-                self.zotino0.write_dac_mu(ATTEN_RAMP_DAC, atten_mu[i])
-                self.zotino0.write_dac_mu(BFIELD_DAC,     field_mu[i])
-                self.zotino0.load()
-
-                # inline set_sweep(i), non-init: REG_LIMIT=0x0B, REG_STEP=0x0C
-                self.aom_3D_red.write64(0x0B, upper[i], lower[i])
-                self.aom_3D_red.write64(0x0C, step_dn[i], step_up[i])
-                self.aom_3D_red.cpld.io_update.pulse_mu(8)
-
-                t += dt_mu
             at_mu(t)
         self.core.break_realtime()
 
