@@ -10,7 +10,6 @@ Created on Thu Feb  2 11:17:41 2023
 from artiq.experiment import EnvExperiment, kernel, ms,us, MHz, NumberValue, delay, parallel, sequential, now_mu,BooleanValue # pyright: ignore[reportMissingImports]
 
 # imports
-import numpy as np
 from CoolingClass import _Cooling
 from CameraClass import _Camera
 from BraggClass import _Bragg
@@ -32,7 +31,6 @@ class Red_MOT_pulse_exp(EnvExperiment):
         self.setattr_argument("pulses", NumberValue(5,min=0, max=100), "parameters")
         self.setattr_argument("wait_time", NumberValue(50.0*1e-3,min=0.0*1e-3,max=9000.00*1e-3,scale=1e-3,
                       unit="ms"),"parameters")
-        self.setattr_argument("broadband",BooleanValue(False),"parameters")
 
 
 
@@ -54,9 +52,7 @@ class Red_MOT_pulse_exp(EnvExperiment):
 
 
         for _ in range(int(self.pulses)):
-            self.ttl5.pulse(1*ms)
             self.MOTs.rmot_pulse()
-
             delay(self.wait_time)
             self.MOTs.take_MOT_image(self.Camera)
             

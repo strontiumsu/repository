@@ -133,17 +133,13 @@ class _Cooling(EnvExperiment):
         self.setattr_argument("shape_atten",
                             EnumerationValue(["lin", "smooth", "exp", "expinv", "quad", "sqrt"],default="exp"), "Red MOT")
         self.setattr_argument("ramp_tau",
-                            NumberValue(0.5, ndecimals=3, step=0.01, min=0.0),"Red MOT")
+                            NumberValue(0.2, ndecimals=3, step=0.01, min=0.0),"Red MOT")
         self.setattr_argument("atten_ramp_i",
                             NumberValue(9.99, unit="V", min=0.0, max=9.99), "Red MOT")
         self.setattr_argument("atten_ramp_f",
-                            NumberValue(0.1,  unit="V", min=0.0, max=9.99), "Red MOT")
+                            NumberValue(0.8,  unit="V", min=0.0, max=9.99), "Red MOT")
         self.setattr_argument("rmot_scan_frequency",
                             NumberValue(30*1e3, min=10*1e3, max=100*1e3, scale=1e3, unit='kHz'), "Red MOT")
-        self.setattr_argument("molasses",
-                            BooleanValue(False), "Red MOT")
-        self.setattr_argument("molasses_frequency",
-                            NumberValue(179.25*1e6, min=10*1e6, max=200*1e6, scale=1e6, unit='MHz'), "Red MOT")
 
         ## ------------- IMAGING/DETECTION PARAMS
         self.setattr_argument("Push_pulse_time",
@@ -237,8 +233,8 @@ class _Cooling(EnvExperiment):
         # ensure powers at at correct power
         self.aom_3D_blue.set_att(self.atten_3D)
         self.aom_3D_red.set_att(self.atten_3D_red)
-        self.aom_3D_blue.set_amplitude(0.8)
-        self.aom_3D_red.set_amplitude(0.8)
+        self.aom_3D_blue.set_amplitude(self.scale_3D)
+        self.aom_3D_red.set_amplitude(self.scale_3D_red)
 
         self.close_688()  # close 688 shutter to prevent leakage from optical pumping
         self.atom_source_on() # turn all lasers on
@@ -253,7 +249,8 @@ class _Cooling(EnvExperiment):
         delay(self.bmot_load_duration)
 
         # line trigger for consistent time relative to mains and turn on rmot (already sweeping)
-        self.line_trigger()
+        # self.line_trigger()
+        self.ttl5.pulse(10*us)
         self.aom_3D_red.sw.on()
         
 
@@ -263,7 +260,7 @@ class _Cooling(EnvExperiment):
         # turn off blue light
         self.atom_source_off()
         self.aom_3D_blue.sw.off()
-        delay(1.0*us)
+        delay(0.5*us)
 
         # ramp field to broad band red mot current and hold
         self.core_dma.playback("field_to_bb")
@@ -274,15 +271,14 @@ class _Cooling(EnvExperiment):
         self.aom_3P2.sw.off()
 
         # rmot compression: coil field + attenuation VVA + DRG frequency sweep
-        self.ttl5.pulse(1*us)
         self.core_dma.playback("rmot_ramp")
         
 
         # single-frequency compression stage (skipped when rmot_sf_duration == 0)
-        if self.sf_n > 0:
-            self.single_frequency_stage()
+        # if True: #put sf stage here
+        #     pass
+            # self.single_frequency_stage()
         self.aom_3D_red.sw.off()
-        self.ttl5.pulse(1*us)
         delay(2.0*us)  # ensure light is off before field ramp down
 
         if dipole_on == True:
@@ -291,6 +287,7 @@ class _Cooling(EnvExperiment):
             self.coils_off()
 
         self.open_688()  # open 688 shutter to allow for excitation
+        self.dac_set(6,  9.99)  # reset atten for redmot
 
     @kernel
     def single_frequency_stage(self, REG_CFR2=0x01, CFR2_STATIC=0x01000020):
@@ -538,8 +535,11 @@ class _Cooling(EnvExperiment):
         """
         n = int(time / dt)
         x = np.linspace(0, 1, n)
-        v = start + (end - start) * shape(shape_kind, x, self.ramp_tau)   # setpoint = DAC volts
-        assert v.max() <= MAX_CURRENT and v.min() >= -1e-10, "field ramp setpoint out of range [0, MAX_CURRENT]" # eps=1e-10 for floating point error
+        win = shape(shape_kind, x, 0.0)
+        if end < start:                 # match old Blackman_ramp down-branch
+            win = 1.0 - shape(shape_kind, 1.0 - x, 0.0)
+        v = start + (end - start) * win
+        assert v.max() <= 7.0 and v.min() >= -1e-10, "field ramp setpoint out of range [0, MAX_CURRENT]" # eps=1e-10 for floating point error
         return [voltage_to_mu(float(vi)) for vi in v]
 
     
