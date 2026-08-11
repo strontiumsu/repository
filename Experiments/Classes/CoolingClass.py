@@ -5,10 +5,7 @@ Created on Mon Jan 30 18:16:29 2023
 @author: ejporter
 
 Desc: This file contains the class that controls all blue MOT and red MOT methods
-(loading, MOT coils, etc.).  The urukul1 AOMs live in their own DDS class,
-CoolingDDSClass._CoolingDDS, which this class composes as self.dds (and mirrors
-onto itself via aliases).  _Cooling itself holds only the MOT-specific machinery
-(coils, TTLs, RAM frequency scanning and pulse sequences).
+(loading, MOT coils, etc.). 
 
 Method layout follows the experiment lifecycle: build -> host prepare -> kernel
 init -> DMA recording -> low-level utilities -> coil control -> MOT sequences ->
@@ -16,7 +13,7 @@ imaging.
 """
 
 from artiq.experiment import ms, us, MHz, NumberValue, parallel, sequential, EnumerationValue, s # pyright: ignore[reportMissingImports]
-from artiq.experiment import kernel, EnvExperiment, BooleanValue, delay, at_mu, now_mu # pyright: ignore[reportMissingImports]
+from artiq.experiment import kernel, EnvExperiment, delay, at_mu, now_mu # pyright: ignore[reportMissingImports]
 from artiq.coredevice.ad53xx import voltage_to_mu # pyright: ignore[reportMissingImports]
 
 import numpy as np
@@ -249,8 +246,7 @@ class _Cooling(EnvExperiment):
         delay(self.bmot_load_duration)
 
         # line trigger for consistent time relative to mains and turn on rmot (already sweeping)
-        # self.line_trigger()
-        self.ttl5.pulse(10*us)
+        self.line_trigger()
         self.aom_3D_red.sw.on()
         
 
@@ -260,7 +256,6 @@ class _Cooling(EnvExperiment):
         # turn off blue light
         self.atom_source_off()
         self.aom_3D_blue.sw.off()
-        delay(0.5*us)
 
         # ramp field to broad band red mot current and hold
         self.core_dma.playback("field_to_bb")
@@ -274,12 +269,11 @@ class _Cooling(EnvExperiment):
         self.core_dma.playback("rmot_ramp")
         
 
-        # single-frequency compression stage (skipped when rmot_sf_duration == 0)
-        # if True: #put sf stage here
-        #     pass
-            # self.single_frequency_stage()
+        # single-frequency compression stage (currently skipping, havent implemented)
+        # self.single_frequency_stage
+
         self.aom_3D_red.sw.off()
-        delay(2.0*us)  # ensure light is off before field ramp down
+        delay(1.0*us)  # ensure light is off before field ramp down
 
         if dipole_on == True:
             self.core_dma.playback("field_sf_down")  # rmot_sf_current -> 0 (DMA)
