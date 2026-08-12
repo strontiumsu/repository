@@ -1,48 +1,8 @@
 # -*- coding: utf-8 -*-
-"""
-rmot_pulse_sweep.py
 
-A stripped-down copy of Red_MOT_pulse that does a 1D sweep over ANY single
-parameter used by the red-MOT pulse sequence (frequencies, attens, currents,
-times, ...).  For every scan value it fires one (or more) rmot_pulse(s) and
-takes a MOT image.  No analysis is done here -- the raw/bg-subtracted images
-are saved by the camera (detection.images.<ind>) and you post-process them.
-
-HOW THE SWEEP WORKS
--------------------
-Most rmot_pulse parameters are baked into host-precomputed arrays that get
-recorded into DMA traces (rmot_ramp, field_blue_up/down/load, field_to_bb,
-field_sf_down).  So changing a parameter requires two steps every scan point:
-  1. host: set the attribute + re-run MOTs.prepare_cooling() (recompute arrays)
-  2. kernel: erase + re-record the 6 cooling DMA traces, then run the pulse
-The erase-before-record is deliberate: re-recording variable-size traces WITHOUT
-erasing first fragments the Kasli SDRAM and eventually hangs the core.  Bragg's
-DMA is recorded first (at init) so the cooling traces sit on top of the heap and
-recycle cleanly in place.
-
-PICKING WHAT TO SCAN
---------------------
-Choose the parameter from the `scan_param` dropdown.  `scan_start`/`scan_stop`
-are interpreted in that parameter's BASE units exactly as stored on the object:
-    frequencies -> Hz     (e.g. 180.5 MHz -> 180500000)
-    times       -> seconds (e.g. 85 ms   -> 0.085)
-    attens      -> dB
-    currents    -> A (DAC volts)
-    atten_ramp  -> V
-The resolved scan list is printed at run start and saved to rmot_sweep.values.
-
-POST-PROCESSING DATASETS
-------------------------
-    rmot_sweep.param            name of the scanned parameter
-    rmot_sweep.values           the scan values (one per point)
-    rmot_sweep.shots_per_point  images taken per scan value
-    rmot_sweep.value_per_image  scan value for each image index (ind 0..N-1)
-    detection.images.<ind>      the images (background_image is separate)
-
-@author: E. Porter
-"""
-
-from artiq.experiment import EnvExperiment, kernel, ms, NumberValue, EnumerationValue, delay, now_mu  # pyright: ignore[reportMissingImports]
+from artiq.experiment import (EnvExperiment, kernel, ms,
+                              NumberValue, EnumerationValue,
+                              delay, now_mu, rpc)  # pyright: ignore[reportMissingImports]
 
 import numpy as np
 
@@ -52,11 +12,9 @@ from CameraClass import _Camera
 from BraggClass import _Bragg
 
 
-# Parameters you are allowed to sweep.  Each name is an attribute that lives on
-# the _Cooling object (or its dds) and feeds the red-MOT pulse.  Add a name here
-# if you want to scan something not listed.
+# Parameters you are allowed to sweep.
 SCAN_PARAMS = [
-    # --- Red MOT compression sweep ---
+    # --- Red MOT  sweep ---
     "freq_high_i", "freq_high_f",          # top of the modulation-depth sweep (Hz)
     "span_i", "span_f",                    # modulation depth below the top (Hz)
     "rmot_bb_current", "rmot_bb_duration", # broadband stage current (A) / hold (s)
@@ -71,10 +29,7 @@ SCAN_PARAMS = [
     "atten_3D_red", "scale_3D_red",        # red 3D AOM atten (dB) / amplitude
     "atten_3D", "scale_3D",                # blue 3D AOM atten (dB) / amplitude
     # --- Blue MOT ---
-    "bmot_current", "bmot_ramp_duration", "bmot_load_duration",
-    # --- Detection / timing ---
-    "f_MOT3D_detect", "Detection_pulse_time",
-    "wait_time",                           # delay between pulse and image (s)
+    "bmot_current", "bmot_ramp_duration", "bmot_load_duration"
 ]
 
 
@@ -129,6 +84,8 @@ class rmot_pulse_sweep(EnvExperiment):
         self.set_dataset("rmot_sweep.values", self.scan_values, broadcast=True, archive=True)
         self.set_dataset("rmot_sweep.shots_per_point", n_shots, broadcast=True, archive=True)
         self.set_dataset("rmot_sweep.value_per_image", value_per_image, broadcast=True, archive=True)
+        self.set_dataset("rmot_sweep.counts", np.zeros(np.shape(value_per_image)), broadcast=True, archive=True)
+        self._img_ind = 0   # running pulse-image index into rmot_sweep.counts
 
         # same host prepares as Red_MOT_pulse
         self.MOTs.prepare_cooling()
@@ -147,8 +104,13 @@ class rmot_pulse_sweep(EnvExperiment):
                 hit = True
         if not hit:
             raise ValueError("scan parameter '{}' not found on experiment/MOTs/dds".format(name))
-        # recompute every host-side array so the DMA re-record picks up the change
+        # recompute all host values
         self.MOTs.prepare_cooling()
+
+    @rpc(flags={"async"})
+    def _record_counts(self, counts):
+        self.mutate_dataset("rmot_sweep.counts", self._img_ind, int(counts))
+        self._img_ind += 1
 
     def run(self):
         print("rmot_pulse_sweep: scanning '{}' over {} (base units)".format(
@@ -161,8 +123,9 @@ class rmot_pulse_sweep(EnvExperiment):
         for pi in range(n_pts):
             value = self.scan_values[pi]
             self._apply_value(value)              # host: set attr + prepare_cooling
-            print("  point {}/{}  {} = {:g}".format(pi + 1, n_pts, self.scan_param, value))
             self._rerecord()                      # kernel: erase + re-record DMA (once per point)
+
+            print("  point {}/{}  {} = {:g}".format(pi + 1, n_pts, self.scan_param, value))
             for _ in range(n_shots):
                 self._shot()                      # kernel: pulse + image
 
@@ -174,12 +137,9 @@ class rmot_pulse_sweep(EnvExperiment):
     @kernel
     def _init_hardware(self):
         self.core.reset()
-        # Bragg first so its DMA traces sit at the bottom of the heap and the
-        # cooling traces (which we recycle every point) sit on top.
         self.Bragg.init_aoms(switches=0x9)
         self.MOTs.init_cooling()
         delay(10*ms)
-
         self.MOTs.take_background_image_exp(self.Camera)
 
     @kernel
@@ -204,10 +164,11 @@ class rmot_pulse_sweep(EnvExperiment):
         delay(self.wait_time)
         self.MOTs.take_MOT_image(self.Camera)
 
-        # always use this block to readout images
         delay(10*ms)
         self.core.wait_until_mu(now_mu())
-        self.Camera.process_image(bg_sub=True)
+        ports = self.Camera.process_image(bg_sub=True, return_ports=['lattice'])
+        lattice_counts = ports[0]
+        self._record_counts(lattice_counts)
         self.core.break_realtime()
 
         delay(10*ms)
@@ -215,5 +176,6 @@ class rmot_pulse_sweep(EnvExperiment):
     @kernel
     def _finish(self):
         self.core.break_realtime()
+        delay(100*ms)
         self.MOTs.AOMs_on_all()
         self.MOTs.atom_source_on()

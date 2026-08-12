@@ -37,6 +37,13 @@
     "ports": {
       "counts": {"x": 18, "y": 168, "w": 220, "h": 95, "color": 200}
     }
+  },
+  "lattice_load": {
+    "description": "Blue MOT counts. Single bMOT cloud, total counts in one ROI.",
+    "ports": {
+      "lattice": {"x": 230, "y": 60, "w": 60, "h": 80, "color": 200}
+    }
   }
+
 }
 

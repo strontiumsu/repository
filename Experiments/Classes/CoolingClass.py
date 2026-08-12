@@ -226,6 +226,7 @@ class _Cooling(EnvExperiment):
     def rmot_pulse(self, dipole_on=True):
         self.AOMs_off_all()
         self.set_sweep(0, init=True)  # re-arm the DRG (may have been disabled by the sf stage)
+        delay(20*ms)
 
         # ensure powers at at correct power
         self.aom_3D_blue.set_att(self.atten_3D)

@@ -29,7 +29,7 @@ class Red_MOT_pulse_exp(EnvExperiment):
 
         # attributes for this experiment
         self.setattr_argument("pulses", NumberValue(5,min=0, max=100), "parameters")
-        self.setattr_argument("wait_time", NumberValue(50.0*1e-3,min=0.0*1e-3,max=9000.00*1e-3,scale=1e-3,
+        self.setattr_argument("wait_time", NumberValue(0.0*1e-3,min=0.0*1e-3,max=9000.00*1e-3,scale=1e-3,
                       unit="ms"),"parameters")
 
 
