@@ -31,7 +31,8 @@ SCAN_PARAMS = [
     "atten_3D_red", "scale_3D_red",        # red 3D AOM atten (dB) / amplitude
     "atten_3D", "scale_3D",                # blue 3D AOM atten (dB) / amplitude
     # --- Blue MOT ---
-    "bmot_current", "bmot_ramp_duration", "bmot_load_duration"
+    "bmot_current", "bmot_ramp_duration", "bmot_load_duration",
+    "shield_atten", "shield_freq"
 ]
 
 

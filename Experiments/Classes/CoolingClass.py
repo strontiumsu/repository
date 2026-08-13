@@ -13,7 +13,7 @@ imaging.
 """
 
 from artiq.experiment import ms, us, MHz, NumberValue, parallel, sequential, EnumerationValue, s # pyright: ignore[reportMissingImports]
-from artiq.experiment import kernel, EnvExperiment, delay, at_mu, now_mu # pyright: ignore[reportMissingImports]
+from artiq.experiment import kernel, EnvExperiment, delay, at_mu, now_mu, BooleanValue # pyright: ignore[reportMissingImports]
 from artiq.coredevice.ad53xx import voltage_to_mu # pyright: ignore[reportMissingImports]
 
 import numpy as np
@@ -104,7 +104,11 @@ class _Cooling(EnvExperiment):
                         NumberValue(50*ms, min=10*ms, max=200.0*ms, scale=1e-3, unit="ms"), "Blue MOT")
         self.setattr_argument("to_bb_time",
                         NumberValue(10*ms, min=2*ms, max=100.0*ms, scale=1e-3, unit="ms"), "Blue MOT")
-        
+        self.setattr_argument("shield_atten",
+                              NumberValue(7.0, min=6.00, max=30.0, scale=1, unit="dB"), "Blue MOT")
+        self.setattr_argument("shield_freq",
+                            NumberValue(179.9*1e6, min=10.0*1e6, max=200.0*1e6, scale=1e6, unit="MHz", ndecimals=3), "Blue MOT")
+        self.setattr_argument("shield", BooleanValue(default=False), "Blue MOT")
 
         ## ------------- RED MOT PARAMS
         self.setattr_argument("rmot_bb_current",
@@ -118,14 +122,10 @@ class _Cooling(EnvExperiment):
         self.setattr_argument("rmot_sf_duration",
                             NumberValue(25.0*1e-3, min=0.0*1e-3, max=300.0*1e-3, scale=1e-3, unit="ms"), "Red MOT")  # how long to hold atoms in sf red mot (0 -> skip sf stage)
         # single-frequency stage: linearly step aom_3D_red frequency and Urukul RF attenuation
-        self.setattr_argument("rmot_sf_freq_i",
+        self.setattr_argument("sf_freq",
                             NumberValue(180.0*1e6, min=10.0*1e6, max=200.0*1e6, scale=1e6, unit="MHz", ndecimals=3), "Red MOT")
-        self.setattr_argument("rmot_sf_freq_f",
-                            NumberValue(180.0*1e6, min=10.0*1e6, max=200.0*1e6, scale=1e6, unit="MHz", ndecimals=3), "Red MOT")
-        self.setattr_argument("rmot_sf_atten_i",
-                            NumberValue(9.0, min=0.0, max=31.5, unit="dB"), "Red MOT")   # Urukul step attenuator
-        self.setattr_argument("rmot_sf_atten_f",
-                            NumberValue(9.0, min=0.0, max=31.5, unit="dB"), "Red MOT")
+        self.setattr_argument("sf_atten",
+                            NumberValue(9.0, min=0.0, max=30.0, unit="dB"), "Red MOT")  
         # top of the modulation-depth sweep: linearly swept between these two
         self.setattr_argument("freq_high_i",
                             NumberValue(180.4*1e6, min=10.0*1e6, max=200.0*1e6, scale=1e6, unit="MHz", ndecimals=3), "Red MOT")
@@ -193,7 +193,6 @@ class _Cooling(EnvExperiment):
         self.dds.prepare_aoms()
         self._prepare_rmot_ramp()  # writes DMA for rmot broadband compression and field/atten ramps
         self._prepare_coils()      # writes DMAs for current ramps and a blackman profile for any arbitrary ramp
-        self._prepare_sf_stage()   # precomputes the single-frequency stage freq/atten steps
     ## ----------- KERNEL INIT
     @kernel
     def init_cooling(self, switches=0x0):
@@ -236,16 +235,35 @@ class _Cooling(EnvExperiment):
         delay(self.bmot_load_duration) # hold for load duration
     
     @kernel
+    def change_frequency_mode(self, mode, REG_CFR2=0x01, CFR2_RUN=0x010F0020, CFR2_IDLE=0x01010020):
+        if mode=="DRG":
+            self.aom_3D_red.write32(REG_CFR2, CFR2_RUN)
+        elif mode=="SF":
+            self.aom_3D_red.write32(REG_CFR2, CFR2_IDLE)
+        else:
+            raise Exception("Must choose either 'DRG' or 'SF' mode..")
+        
+        self.aom_3D_red.cpld.io_update.pulse_mu(8)  # send update
+
+    @kernel
     def rmot_pulse(self, dipole_on=True):
         self.AOMs_off_all()
-        self.set_sweep(0, init=True)  # re-arm the DRG (may have been disabled by the sf stage)
+
+        if self.shield:
+            self.change_frequency_mode(mode="SF")
+            delay(10*ms)
+            self.aom_3D_red.set_att(self.shield_atten)
+            self.aom_3D_red.set(frequency=self.shield_freq, amplitude=self.scale_3D_red)
+        else:
+            self.set_sweep(0, init=True)
+            self.aom_3D_red.set_att(self.atten_3D_red)
+            self.aom_3D_red.set_amplitude(self.scale_3D_red)
+
         delay(20*ms)
 
         # ensure powers at at correct power
-        self.aom_3D_blue.set_att(self.atten_3D)
-        self.aom_3D_red.set_att(self.atten_3D_red)
+        self.aom_3D_blue.set_att(self.atten_3D)       
         self.aom_3D_blue.set_amplitude(self.scale_3D)
-        self.aom_3D_red.set_amplitude(self.scale_3D_red)
 
         self.close_688()  # close 688 shutter to prevent leakage from optical pumping
         self.atom_source_on() # turn all lasers on
@@ -256,24 +274,31 @@ class _Cooling(EnvExperiment):
         self.aom_3D_red.sw.off()
 
         # ramp up bmot bfield and hold for load duration
+        self.aom_3D_red.sw.on() # start shielding
         self.core_dma.playback("field_blue_up")
         delay(self.bmot_load_duration)
 
         # line trigger for consistent time relative to mains and turn on rmot (already sweeping)
         self.line_trigger()
-        self.aom_3D_red.sw.on()
+
         
-
         # ramp up blue MOT current + blue attenuation together
-        self.core_dma.playback("field_blue_load")
-
+        self.core_dma.playback("field_blue_compress")
+        
         # turn off blue light
         self.atom_source_off()
         self.aom_3D_blue.sw.off()
 
         # ramp field to broad band red mot current and hold
+        
+        self.aom_3D_red.sw.off()
+        
+        self.set_sweep(0, init=True)          # arm + enable the DRG (must be sequential, not inside a DMA parallel block)
+        self.aom_3D_red.sw.on()
         self.core_dma.playback("field_to_bb")
         delay(self.rmot_bb_duration)
+        
+        
 
         # turn off repumpers
         self.aom_3P0.sw.off()
@@ -282,10 +307,21 @@ class _Cooling(EnvExperiment):
         # rmot compression: coil field + attenuation VVA + DRG frequency sweep
         self.core_dma.playback("rmot_ramp")
         
-        # single-frequency compression stage (currently skipping, havent implemented)
-        # self.single_frequency_stage
-
+        # # single-frequency compression stage (currently skipping, havent implemented) 
         self.aom_3D_red.sw.off()
+
+        # reset red light
+        if self.rmot_sf_duration>1e-12:
+            self.dac_set(ATTEN_RAMP_DAC, 9.99)  # reset VVA to max
+            self.change_frequency_mode(mode="SF") 
+            self.aom_3D_red.set_att(self.sf_atten)
+            self.aom_3D_red.set(frequency=self.sf_freq, amplitude=self.scale_3D_red)
+
+            self.aom_3D_red.sw.on()    
+            delay(self.rmot_sf_duration)
+
+
+            self.aom_3D_red.sw.off()
         delay(1.0*us)  # ensure light is off before field ramp down
 
         if dipole_on == True:
@@ -294,29 +330,7 @@ class _Cooling(EnvExperiment):
             self.coils_off()
 
         self.open_688()  # open 688 shutter to allow for excitation
-        self.dac_set(6,  9.99)  # reset atten for redmot
-
-    @kernel
-    def single_frequency_stage(self, REG_CFR2=0x01, CFR2_STATIC=0x01000020):
-        """Single-frequency compression: disable the DRG and step aom_3D_red's tuning word and
-        Urukul RF attenuation through the host-precomputed sf_ftw / sf_atten_db arrays.  The DRG is
-        left off here and re-armed at the top of the next rmot_pulse via set_sweep(0, init=True)."""
-        # disable the DRG so the profile FTW (set below) drives a static, stepped tone
-        self.aom_3D_red.write32(REG_CFR2, CFR2_STATIC)
-        self.aom_3D_red.cpld.io_update.pulse_mu(8)
-
-        asf = self.aom_3D_red.amplitude_to_asf(self.scale_3D_red)
-        t = now_mu()
-        for i in range(self.sf_n):
-            at_mu(t)
-            self.aom_3D_red.set_mu(self.sf_ftw[i], asf=asf)  # step frequency
-            self.aom_3D_red.set_att(self.sf_atten_db[i])     # step Urukul RF attenuation
-            t += self.sf_dt_mu
-        at_mu(t)
-
-
-
-
+        self.dac_set(ATTEN_RAMP_DAC,  9.99)  # reset atten for redmot
 
     ## ---------- DAC / TTL / AOM UTILITIES (kernel)
     @kernel
@@ -468,24 +482,6 @@ class _Cooling(EnvExperiment):
         self.aom_3D_blue.set(frequency=self.freq_3D, amplitude=0.8)
         self.aom_3D_blue.set_att(self.atten_3D)
 
-
-    ## ---- internal prepare methods
-    def _prepare_sf_stage(self):
-        """Linear single-frequency compression stage: step the aom_3D_red tuning word and
-        Urukul RF attenuation from *_i to *_f over rmot_sf_duration.  Skipped if duration == 0."""
-        n = int(self.rmot_sf_duration / SF_STEP_DT)
-        if n < 1:                       # duration 0 (or < one step) -> skip the stage
-            self.sf_n = 0
-            return
-        dt = self.rmot_sf_duration / n
-        x  = np.linspace(0, 1, n)
-        freqs  = self.rmot_sf_freq_i  + (self.rmot_sf_freq_f  - self.rmot_sf_freq_i ) * x
-        attens = self.rmot_sf_atten_i + (self.rmot_sf_atten_f - self.rmot_sf_atten_i) * x
-        self.sf_ftw      = [int32(self.urukul_channels[0].frequency_to_ftw(f)) for f in freqs]
-        self.sf_atten_db = [float(a) for a in attens]
-        self.sf_n        = n
-        self.sf_dt_mu    = self.core.seconds_to_mu(dt)
-
     def _prepare_rmot_ramp(self):
         """Precompute the rmot compression sweep: DRG limits/steps and the attenuation
         and coil-field DAC ramps that record_rmot_ramp() bakes into one DMA trace."""
@@ -575,11 +571,9 @@ class _Cooling(EnvExperiment):
         self.core.break_realtime()
         delay(5*ms)
 
-        self.aom_3D_red.set(self.freq_high_i, amplitude=self.scale_3D_red)   # sets ASF; FTW from DRG
+        # self.aom_3D_red.set(self.freq_high_i, amplitude=self.scale_3D_red)   # sets ASF; FTW from DRG
         self.zotino0.write_dac_mu(ATTEN_RAMP_DAC,  self.atten_dac_mu[0])  # sets initial attenuation for red MOT
         self.zotino0.load()
-
-        self.set_sweep(0, init=True)  # starts red mot sweep at initial depth, init to config CFR2
         self.core.break_realtime()
 
     @kernel
@@ -612,6 +606,7 @@ class _Cooling(EnvExperiment):
         """Compression sweep: attenuation VVA + coil field + DRG frequency sweep in one trace."""
         with self.core_dma.record("rmot_ramp"):
             t = now_mu()
+            self.aom_3D_red.set_att(self.atten_3D_red)
             for i in range(self.rmot_n):
                 at_mu(t)
 
@@ -658,13 +653,15 @@ class _Cooling(EnvExperiment):
         # blue capture ramp: coil current + blue AOM attenuation baked into one trace
         n = len(self.blue_load_mu)
         dt_mu = self.core.seconds_to_mu(self.bmot_compress_time / n)
-        with self.core_dma.record("field_blue_load"):
+        with self.core_dma.record("field_blue_compress"):
             t = now_mu()
+            if self.shield: self.aom_3D_red.set_att(self.shield_atten)
             for i in range(n):
                 at_mu(t)
                 self.zotino0.write_dac_mu(BFIELD_DAC, self.blue_load_mu[i])
                 self.zotino0.load()
                 self.aom_3D_blue.set_att(self.blue_att_db[i])
+                
                 t += dt_mu
             at_mu(t)
         self.core.break_realtime()
