@@ -25,6 +25,8 @@ SCAN_PARAMS = [
     "atten_ramp_i", "atten_ramp_f",        # VVA attenuation ramp endpoints (V)
     "ramp_tau",                            # shape time-constant
     "rmot_scan_frequency",                 # DRG modulation frequency (Hz)
+    "binc", "to_bb_time", 
+    "bmot_compress_atten", "bmot_compress_time",
     # --- AOM powers applied during the pulse ---
     "atten_3D_red", "scale_3D_red",        # red 3D AOM atten (dB) / amplitude
     "atten_3D", "scale_3D",                # blue 3D AOM atten (dB) / amplitude
@@ -76,15 +78,10 @@ class rmot_pulse_sweep(EnvExperiment):
         n_images = 1 + len(self.scan_values) * n_shots   # 1 background + all pulse images
 
         # save the scan bookkeeping for post-processing
-        value_per_image = []
-        for v in self.scan_values:
-            for _ in range(n_shots):
-                value_per_image.append(v)
         self.set_dataset("rmot_sweep.param", self.scan_param, broadcast=True, archive=True)
         self.set_dataset("rmot_sweep.values", self.scan_values, broadcast=True, archive=True)
         self.set_dataset("rmot_sweep.shots_per_point", n_shots, broadcast=True, archive=True)
-        self.set_dataset("rmot_sweep.value_per_image", value_per_image, broadcast=True, archive=True)
-        self.set_dataset("rmot_sweep.counts", np.zeros(np.shape(value_per_image)), broadcast=True, archive=True)
+        self.set_dataset("rmot_sweep.counts", np.zeros(n_shots*len(self.scan_values)), broadcast=True, archive=True)
         self._img_ind = 0   # running pulse-image index into rmot_sweep.counts
 
         # same host prepares as Red_MOT_pulse

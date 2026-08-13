@@ -20,6 +20,7 @@ import numpy as np
 from numpy import int32, int64
 
 from CoolingDDSClass import _CoolingDDS
+from BraggClass import _Bragg
 
 
 ## ---------- CONSTANTS
@@ -31,9 +32,9 @@ SF_STEP_DT = 100*us  # time step of the single-frequency compression stage
 # coil-field ramp parameters
 FIELD_RAMP_DT      = 50*us   # time step for the DMA coil-field ramps (fine -> many points)
 ARB_RAMP_NPOINTS   = 60      # point count for the one-off (non-DMA) ramp_field()
-BINC               = 1.0     # extra coil current above bmot_current during the blue->red capture ramp
-BLUE_TRANSFER_TIME = 50*ms   # duration of the blue-current + blue-attenuation capture ramp
-TO_BB_TIME         = 15*ms   # duration of the ramp from blue MOT current to broadband red MOT current
+# BINC               = 1.0     # extra coil current above bmot_current during the blue->red capture ramp
+# BLUE_TRANSFER_TIME = 50*ms   # duration of the blue-current + blue-attenuation capture ramp
+# TO_BB_TIME         = 15*ms   # duration of the ramp from blue MOT current to broadband red MOT current
 SF_DOWN_TIME       = 5*ms    # duration of the final coil rampdown (dipole_on branch)
 MAX_CURRENT        = 7.0     # hard limit on the coil current setpoint (DAC volts)
 
@@ -79,6 +80,7 @@ class _Cooling(EnvExperiment):
             for p in ("scale_", "atten_", "freq_"):
                 setattr(self, p + n, getattr(self.dds, p + n))
 
+        self.Bragg = _Bragg(self)
         # TTLs (uncomment and label as needed)
         self.setattr_device("ttl1")  # line trigger
         self.setattr_device("ttl5")  # misc timing
@@ -91,9 +93,18 @@ class _Cooling(EnvExperiment):
         self.setattr_argument("bmot_ramp_duration",
                               NumberValue(50.0*1e-3, min=1.0*1e-3, max=100.00*1e-3, scale=1e-3, unit="ms"), "Blue MOT")  # ramp duration
         self.setattr_argument("bmot_current",
-                              NumberValue(5.0, min=0.0, max=7.0, scale = 1, unit="A"), "Blue MOT")  # coil current amplitude
+                              NumberValue(4.6, min=0.0, max=7.0, scale = 1, unit="A"), "Blue MOT")  # coil current amplitude
         self.setattr_argument("bmot_load_duration",
                               NumberValue(1.0*s, min=0.01*s, max=9.0*s, scale=1e-3, unit="ms"), "Blue MOT")  # how long to hold blue mot on to load atoms
+        self.setattr_argument("binc",
+                              NumberValue(1.0, min=0.00, max=2.0, scale=1, unit="A"), "Blue MOT")  # how long to hold blue mot on to load atoms
+        self.setattr_argument("bmot_compress_atten",
+                              NumberValue(30.0, min=6.00, max=30.0, scale=1, unit="dB"), "Blue MOT")  # how long to hold blue mot on to load atoms
+        self.setattr_argument("bmot_compress_time",
+                        NumberValue(50*ms, min=10*ms, max=200.0*ms, scale=1e-3, unit="ms"), "Blue MOT")
+        self.setattr_argument("to_bb_time",
+                        NumberValue(10*ms, min=2*ms, max=100.0*ms, scale=1e-3, unit="ms"), "Blue MOT")
+        
 
         ## ------------- RED MOT PARAMS
         self.setattr_argument("rmot_bb_current",
@@ -103,7 +114,7 @@ class _Cooling(EnvExperiment):
         self.setattr_argument("rmot_ramp_duration",
                             NumberValue(85.0*1e-3, min=0.0, max=200*1e-3, scale=1e-3, unit="ms"), "Red MOT")  # how long to ramp between bb and sf
         self.setattr_argument("rmot_sf_current",
-                            NumberValue(2.0, min=0.0, max=7.0,unit="A"), "Red MOT")  # single frequency mot current
+                            NumberValue(2.3, min=0.0, max=7.0,unit="A"), "Red MOT")  # single frequency mot current
         self.setattr_argument("rmot_sf_duration",
                             NumberValue(25.0*1e-3, min=0.0*1e-3, max=300.0*1e-3, scale=1e-3, unit="ms"), "Red MOT")  # how long to hold atoms in sf red mot (0 -> skip sf stage)
         # single-frequency stage: linearly step aom_3D_red frequency and Urukul RF attenuation
@@ -117,14 +128,14 @@ class _Cooling(EnvExperiment):
                             NumberValue(9.0, min=0.0, max=31.5, unit="dB"), "Red MOT")
         # top of the modulation-depth sweep: linearly swept between these two
         self.setattr_argument("freq_high_i",
-                            NumberValue(180.5*1e6, min=10.0*1e6, max=200.0*1e6, scale=1e6, unit="MHz", ndecimals=3), "Red MOT")
+                            NumberValue(180.4*1e6, min=10.0*1e6, max=200.0*1e6, scale=1e6, unit="MHz", ndecimals=3), "Red MOT")
         self.setattr_argument("freq_high_f",
-                            NumberValue(180.0*1e6, min=10.0*1e6, max=200.0*1e6, scale=1e6, unit="MHz", ndecimals=3), "Red MOT")
+                            NumberValue(179.5*1e6, min=10.0*1e6, max=200.0*1e6, scale=1e6, unit="MHz", ndecimals=3), "Red MOT")
         # modulation depth (span below the top): shaped ramp between these two
         self.setattr_argument("span_i",
-                            NumberValue(6.0*1e6, min=0.0, max=100.0*1e6, scale=1e6, unit="MHz", ndecimals=3), "Red MOT")
+                            NumberValue(5.5*1e6, min=0.0, max=100.0*1e6, scale=1e6, unit="MHz", ndecimals=3), "Red MOT")
         self.setattr_argument("span_f",
-                            NumberValue(1.1*1e6, min=0.0, max=100.0*1e6, scale=1e6, unit="MHz", ndecimals=3), "Red MOT")
+                            NumberValue(1.0*1e6, min=0.0, max=100.0*1e6, scale=1e6, unit="MHz", ndecimals=3), "Red MOT")
         self.setattr_argument("shape_freq",
                             EnumerationValue(["lin", "smooth", "exp", "expinv", "quad", "sqrt"], default="lin"), "Red MOT")
         self.setattr_argument("shape_atten",
@@ -134,7 +145,7 @@ class _Cooling(EnvExperiment):
         self.setattr_argument("atten_ramp_i",
                             NumberValue(9.99, unit="V", min=0.0, max=9.99), "Red MOT")
         self.setattr_argument("atten_ramp_f",
-                            NumberValue(0.8,  unit="V", min=0.0, max=9.99), "Red MOT")
+                            NumberValue(1.1,  unit="V", min=0.0, max=9.99), "Red MOT")
         self.setattr_argument("rmot_scan_frequency",
                             NumberValue(30*1e3, min=10*1e3, max=100*1e3, scale=1e3, unit='kHz'), "Red MOT")
 
@@ -178,6 +189,7 @@ class _Cooling(EnvExperiment):
 
     ## ---------- HOST PREPARE 
     def prepare_cooling(self):
+        self.Bragg.prepare_aoms()
         self.dds.prepare_aoms()
         self._prepare_rmot_ramp()  # writes DMA for rmot broadband compression and field/atten ramps
         self._prepare_coils()      # writes DMAs for current ramps and a blackman profile for any arbitrary ramp
@@ -188,6 +200,7 @@ class _Cooling(EnvExperiment):
         self._init_ttls()  # turns on in correct in/output configuration
         self._init_coils()  # turns on zotino
         self._init_aoms(switches)  # turns on and initializes urukul
+        self.Bragg.init_aoms(0x9)
         self._dma_record()  # records every repeated  DMA trace
         self.core.break_realtime()  # sync timing
 
@@ -269,7 +282,6 @@ class _Cooling(EnvExperiment):
         # rmot compression: coil field + attenuation VVA + DRG frequency sweep
         self.core_dma.playback("rmot_ramp")
         
-
         # single-frequency compression stage (currently skipping, havent implemented)
         # self.single_frequency_stage
 
@@ -514,12 +526,12 @@ class _Cooling(EnvExperiment):
 
         # precomputed DMA coil-field ramps for the rmot pulse (recorded once, played every shot)
         self.blue_up_mu   = self._build_field_ramp(0.0,                      self.bmot_current,        self.bmot_ramp_duration, FIELD_RAMP_DT, "blackman")
-        self.blue_load_mu = self._build_field_ramp(self.bmot_current,        self.bmot_current + BINC, BLUE_TRANSFER_TIME,      FIELD_RAMP_DT, "lin")
-        self.to_bb_mu     = self._build_field_ramp(self.bmot_current + BINC, self.rmot_bb_current,     TO_BB_TIME,              FIELD_RAMP_DT, "blackman")
+        self.blue_load_mu = self._build_field_ramp(self.bmot_current,        self.bmot_current + self.binc, self.bmot_compress_time,      FIELD_RAMP_DT, "lin")
+        self.to_bb_mu     = self._build_field_ramp(self.bmot_current + self.binc, self.rmot_bb_current,     self.to_bb_time,              FIELD_RAMP_DT, "blackman")
         self.sf_down_mu   = self._build_field_ramp(self.rmot_sf_current,     0.0,                      SF_DOWN_TIME,            FIELD_RAMP_DT, "blackman")
 
         # blue AOM attenuation ramped alongside the blue_load field ramp (same point count)
-        self.blue_att_db  = [float(a) for a in np.linspace(6.0, 30.0, len(self.blue_load_mu))]
+        self.blue_att_db  = [float(a) for a in np.linspace(self.atten_3D, self.bmot_compress_atten, len(self.blue_load_mu))]
 
     def _build_field_ramp(self, start, end, time, dt, shape_kind):
         """Host: build a coil-field ramp as a list of DAC machine units.
@@ -640,12 +652,12 @@ class _Cooling(EnvExperiment):
         
         self._record_field_ramp("field_blue_up", self.blue_up_mu, self.bmot_ramp_duration)
         self._record_field_ramp("field_blue_down", blue_down_mu, self.bmot_ramp_duration)
-        self._record_field_ramp("field_to_bb",   self.to_bb_mu,   TO_BB_TIME)
+        self._record_field_ramp("field_to_bb",   self.to_bb_mu,   self.to_bb_time)
         self._record_field_ramp("field_sf_down", self.sf_down_mu, SF_DOWN_TIME)
 
         # blue capture ramp: coil current + blue AOM attenuation baked into one trace
         n = len(self.blue_load_mu)
-        dt_mu = self.core.seconds_to_mu(BLUE_TRANSFER_TIME / n)
+        dt_mu = self.core.seconds_to_mu(self.bmot_compress_time / n)
         with self.core_dma.record("field_blue_load"):
             t = now_mu()
             for i in range(n):
