@@ -20,8 +20,7 @@ SCAN_PARAMS = [
     "rmot_bb_current", "rmot_bb_duration", # broadband stage current (A) / hold (s)
     "rmot_ramp_duration",                  # bb -> sf compression time (s)
     "rmot_sf_current", "rmot_sf_duration", # single-frequency stage current (A) / time (s)
-    "rmot_sf_freq_i", "rmot_sf_freq_f",    # sf-stage frequency endpoints (Hz)
-    "rmot_sf_atten_i", "rmot_sf_atten_f",  # sf-stage Urukul atten endpoints (dB)
+    "sf_freq", "sf_atten",    # sf-stage frequency endpoints (Hz)
     "atten_ramp_i", "atten_ramp_f",        # VVA attenuation ramp endpoints (V)
     "ramp_tau",                            # shape time-constant
     "rmot_scan_frequency",                 # DRG modulation frequency (Hz)

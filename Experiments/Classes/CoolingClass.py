@@ -108,7 +108,7 @@ class _Cooling(EnvExperiment):
                               NumberValue(7.0, min=6.00, max=30.0, scale=1, unit="dB"), "Blue MOT")
         self.setattr_argument("shield_freq",
                             NumberValue(179.9*1e6, min=10.0*1e6, max=200.0*1e6, scale=1e6, unit="MHz", ndecimals=3), "Blue MOT")
-        self.setattr_argument("shield", BooleanValue(default=False), "Blue MOT")
+        self.setattr_argument("shield", BooleanValue(default=True), "Blue MOT")
 
         ## ------------- RED MOT PARAMS
         self.setattr_argument("rmot_bb_current",
@@ -120,12 +120,12 @@ class _Cooling(EnvExperiment):
         self.setattr_argument("rmot_sf_current",
                             NumberValue(2.3, min=0.0, max=7.0,unit="A"), "Red MOT")  # single frequency mot current
         self.setattr_argument("rmot_sf_duration",
-                            NumberValue(25.0*1e-3, min=0.0*1e-3, max=300.0*1e-3, scale=1e-3, unit="ms"), "Red MOT")  # how long to hold atoms in sf red mot (0 -> skip sf stage)
+                            NumberValue(15.0*1e-3, min=0.0*1e-3, max=300.0*1e-3, scale=1e-3, unit="ms"), "Red MOT")  # how long to hold atoms in sf red mot (0 -> skip sf stage)
         # single-frequency stage: linearly step aom_3D_red frequency and Urukul RF attenuation
         self.setattr_argument("sf_freq",
-                            NumberValue(180.0*1e6, min=10.0*1e6, max=200.0*1e6, scale=1e6, unit="MHz", ndecimals=3), "Red MOT")
+                            NumberValue(180.7*1e6, min=10.0*1e6, max=200.0*1e6, scale=1e6, unit="MHz", ndecimals=3), "Red MOT")
         self.setattr_argument("sf_atten",
-                            NumberValue(9.0, min=0.0, max=30.0, unit="dB"), "Red MOT")  
+                            NumberValue(29.0, min=0.0, max=30.0, unit="dB"), "Red MOT")  
         # top of the modulation-depth sweep: linearly swept between these two
         self.setattr_argument("freq_high_i",
                             NumberValue(180.4*1e6, min=10.0*1e6, max=200.0*1e6, scale=1e6, unit="MHz", ndecimals=3), "Red MOT")
