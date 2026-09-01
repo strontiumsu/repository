@@ -32,13 +32,13 @@ class Bragg_set(EnvExperiment):
     def run(self):
         switch_state = ((1<<0 if self.Dipole  else 0) |
                        (1<<1 if self.Sideband  else 0) |
-                       (1<<2 if self.Push  else 0) |
+                       (1<<2 if self.Carrier  else 0) |
                        (1<<3 if self.Lattice else 0) )
         
         
         self.core.reset()
         
-        if self.Push: self.ttl6.on()
+        if self.Carrier: self.ttl6.on()
         self.bragg.init_aoms(switches=switch_state) 
         delay(1*ms)
         

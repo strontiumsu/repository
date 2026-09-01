@@ -157,7 +157,7 @@ class rmot_pulse_sweep(EnvExperiment):
     @kernel
     def _shot(self):
         self.core.break_realtime()
-        self.MOTs.rmot_pulse()
+        self.MOTs.rmot_pulse(dipole_on=False)
         delay(self.wait_time)
         self.MOTs.take_MOT_image(self.Camera)
 
