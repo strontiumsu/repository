@@ -148,10 +148,11 @@ the overflow to avoid.
   in `DEFAULTS` (they still take effect); just don't list them in `red_mot.json`.
 - `bmot_load_duration` — a `DEFAULTS` entry (0.5 s); set it, leave it out of the
   optimized set.
-- Blue-MOT / blue→red capture knobs (`bmot_current`, `binc`, `blue_att_i/f`,
-  `blue_transfer_time`, `to_bb_time`, `atten_3D`, …) are in `DEFAULTS` but **not**
-  in `red_mot.json`, so they stay on their `DEFAULTS` value. Add them to
-  `param_names` if you want to optimize them later.
+- Blue-MOT / blue→red capture knobs (`bmot_current`, `binc`, `bmot_compress_atten`,
+  `bmot_compress_time`, `to_bb_time`, `atten_3D`, …) and the red-MOT shielding knobs
+  (`shield`, `shield_atten`, `shield_freq`) are in `DEFAULTS` but **not** in
+  `red_mot.json`, so they stay on their `DEFAULTS` value. Add the continuous ones to
+  `param_names` if you want to optimize them later. (`shield` is a bool — leave it out.)
 
 **Units** (must match the stage JSON): frequencies **Hz**, currents/fields **A**
 (coil setpoint is DAC volts, ≈A), VVA attenuations **DAC volts** (0–9.99), AOM
@@ -163,13 +164,13 @@ attenuations **dB** (1–30), durations **seconds**.
 The optimizer is scoped to a **single red-MOT stage** — one file,
 `opt_stages/red_mot.json`, is the one place to edit which red-MOT params are varied
 and their bounds. It covers the broadband red MOT, the compression sweep, and the
-single-frequency stage (17 params):
+single-frequency stage (15 params):
 
 | Stage file | Params (active) |
 |---|---|
-| `red_mot.json` | `rmot_bb_current, rmot_bb_duration, freq_high_i, freq_high_f, span_i, span_f, atten_ramp_i, atten_ramp_f, ramp_tau, rmot_scan_frequency, rmot_ramp_duration, rmot_sf_current, rmot_sf_freq_i, rmot_sf_freq_f, rmot_sf_atten_i, rmot_sf_atten_f, rmot_sf_duration` |
+| `red_mot.json` | `rmot_bb_current, rmot_bb_duration, freq_high_i, freq_high_f, span_i, span_f, atten_ramp_i, atten_ramp_f, ramp_tau, rmot_scan_frequency, rmot_ramp_duration, rmot_sf_current, sf_freq, sf_atten, rmot_sf_duration` |
 
-17 dimensions is a lot for a GP — trim `param_names` (and the aligned
+15 dimensions is a lot for a GP — trim `param_names` (and the aligned
 `first/min/max` arrays) to a subset for faster convergence; the driver accepts any
 length. The old three-stage blue/red/transfer workflow was removed.
 

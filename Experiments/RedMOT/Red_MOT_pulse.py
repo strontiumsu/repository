@@ -10,10 +10,9 @@ Created on Thu Feb  2 11:17:41 2023
 from artiq.experiment import EnvExperiment, kernel, ms,us, MHz, NumberValue, delay, parallel, sequential, now_mu,BooleanValue # pyright: ignore[reportMissingImports]
 
 # imports
-import numpy as np
 from CoolingClass import _Cooling
 from CameraClass import _Camera
-from BraggClass import _Bragg
+
 
 
 class Red_MOT_pulse_exp(EnvExperiment):
@@ -22,7 +21,6 @@ class Red_MOT_pulse_exp(EnvExperiment):
         self.setattr_device("scheduler")
 
         self.MOTs = _Cooling(self)
-        self.Bragg = _Bragg(self)  # dipole/lattice beam AOMs in here
         self.Camera = _Camera(self)
         
         self.setattr_device("ttl5") # timing pulse
@@ -30,16 +28,14 @@ class Red_MOT_pulse_exp(EnvExperiment):
 
         # attributes for this experiment
         self.setattr_argument("pulses", NumberValue(5,min=0, max=100), "parameters")
-        self.setattr_argument("wait_time", NumberValue(50.0*1e-3,min=0.0*1e-3,max=9000.00*1e-3,scale=1e-3,
+        self.setattr_argument("wait_time", NumberValue(0.0*1e-3,min=0.0*1e-3,max=9000.00*1e-3,scale=1e-3,
                       unit="ms"),"parameters")
-        self.setattr_argument("broadband",BooleanValue(False),"parameters")
 
 
 
 
     def prepare(self):
         self.MOTs.prepare_cooling()
-        self.Bragg.prepare_aoms()
         self.Camera.camera_init(N=int(self.pulses) + 1)
               
         
@@ -47,16 +43,13 @@ class Red_MOT_pulse_exp(EnvExperiment):
     def run(self):
         self.core.reset()
         self.MOTs.init_cooling()
-        self.Bragg.init_aoms(switches=0x9)
         delay(10*ms)
 
         self.MOTs.take_background_image_exp(self.Camera)
 
 
         for _ in range(int(self.pulses)):
-            self.ttl5.pulse(1*ms)
             self.MOTs.rmot_pulse()
-
             delay(self.wait_time)
             self.MOTs.take_MOT_image(self.Camera)
             

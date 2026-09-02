@@ -172,21 +172,25 @@ per candidate:
 1. `_wait_for_request()` — polls the dir; also watches for `STOP` and an idle
    timeout.
 2. Coerce every param to `float`; call `self.shot(**overrides)`.
-3. `shot()` (host): merge `{**DEFAULTS, **overrides}`, `setattr` each onto its
-   owner (`self.MOTs` if it has that attribute, else the experiment itself),
-   recompute all ramp arrays with `prepare_cooling()`, ensure the camera is armed,
-   then run `_shot_kernel`.
-4. `_shot_kernel` (kernel): re-record DMA from the freshly-computed `self.*`
-   arrays, run `rmot_pulse()`, `delay(hold_time)`, image, and return the
-   `lattice` ROI count.
-5. Form `cost` and `uncer`, checkpoint, and write `response_<seq>.json`.
+3. `shot()` (host): merge `{**DEFAULTS, **overrides}`, `setattr` each onto EVERY
+   owner that has it (the experiment, `self.MOTs`, and `self.MOTs.dds` — the DDS
+   instance is the source of truth for `scale_/atten_/freq_*`), recompute all ramp
+   arrays with `prepare_cooling()`, ensure the camera is armed, then run `_rerecord`
+   and `_shot_kernel`.
+4. `_rerecord` (kernel): erase all six DMA traces (reverse of record order) and
+   re-record them via `_dma_record()` from the freshly-computed `self.*` arrays.
+   Erase-first frees the core-device SDRAM top-down before re-allocating — the same
+   method `rmot_pulse_sweep._rerecord` uses.
+5. `_shot_kernel` (kernel): run `rmot_pulse()`, `delay(hold_time)`, image, and
+   return the `lattice` ROI count.
+6. Form `cost` and `uncer`, checkpoint, and write `response_<seq>.json`.
 
 ```
-DEFAULTS ⊕ candidate  →  _push (setattr)  →  prepare_cooling()  ──host──┐
-                                                                        ▼
-   _dma_record() → rmot_pulse() → delay(hold_time) → image → lattice count   (kernel)
-                                                                        │
-                        cost = -count / reference_ema  ────────────────┘
+DEFAULTS ⊕ candidate  →  _push (setattr on self/MOTs/dds)  →  prepare_cooling()  ──host──┐
+                                                                                          ▼
+   erase all traces → _dma_record() → rmot_pulse() → delay(hold_time) → image → lattice count   (kernel)
+                                                                                          │
+                        cost = -count / reference_ema  ──────────────────────────────────┘
 ```
 
 ### The kernel-argument gotcha (why ramps are attributes, not arguments)
@@ -309,8 +313,8 @@ the server through `param_names`. Key fields:
 - `cost_has_noise: true` — tells the GP the objective is stochastic.
 - `max_num_runs`, `response_timeout_s`, optional `target_cost`.
 
-The current `red_mot.json` optimizes **17 parameters** spanning the broadband red
-MOT, the compression sweep, and the single-frequency stage. 17 is high-dimensional
+The current `red_mot.json` optimizes **15 parameters** spanning the broadband red
+MOT, the compression sweep, and the single-frequency stage. 15 is high-dimensional
 for a GP — trimming `param_names` (and the aligned arrays) to a subset converges
 faster; the driver accepts any length.
 

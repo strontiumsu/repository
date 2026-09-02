@@ -1,15 +1,15 @@
 {
   "_comment": "Red-MOT stage: broadband red MOT + compression sweep + single-frequency stage. This selects WHICH variables M-LOOP optimizes; every name in param_names must be a key in TransferOptimizer.DEFAULTS. Bounds below are FILLERS bracketing the DEFAULTS values — TIGHTEN to SAFE hardware ranges before running. The four arrays (param_names/first_params/min_boundary/max_boundary) MUST stay index-aligned and equal length.",
-  "_units": "freq_* / span_* / rmot_scan_frequency in Hz; rmot_*_current in A (<7); durations in seconds; atten_ramp_* in DAC volts (0-9.99); rmot_sf_atten_* in dB (Urukul step attenuator, 0-31.5); ramp_tau dimensionless.",
-  "_notes": "span_i/span_f are the modulation depth BELOW the swept top (freq_high_i->freq_high_f); the compressed 'bottom' is (top - span). 17 params is high-dimensional for a GP — trim param_names (and the aligned arrays) to a subset to converge faster; the driver handles any length.",
+  "_units": "freq_* / span_* / sf_freq / rmot_scan_frequency in Hz; rmot_*_current in A (<7); durations in seconds; atten_ramp_* in DAC volts (0-9.99); sf_atten in dB (Urukul RF atten, 0-30); ramp_tau dimensionless.",
+  "_notes": "span_i/span_f are the modulation depth BELOW the swept top (freq_high_i->freq_high_f); the compressed 'bottom' is (top - span). The single-frequency stage is one tone (sf_freq/sf_atten), held for rmot_sf_duration. 15 params is high-dimensional for a GP — trim param_names (and the aligned arrays) to a subset to converge faster; the driver handles any length.",
   "stage_name": "red_mot",
   "controller_type": "gaussian_process",
   "cost_has_noise": true,
   "max_num_runs": 200,
   "response_timeout_s": 3600.0,
 
-  "param_names":  ["rmot_bb_current", "rmot_bb_duration", "freq_high_i", "freq_high_f", "span_i",  "span_f",  "atten_ramp_i", "atten_ramp_f", "ramp_tau", "rmot_scan_frequency", "rmot_ramp_duration", "rmot_sf_current", "rmot_sf_freq_i", "rmot_sf_freq_f", "rmot_sf_atten_i", "rmot_sf_atten_f", "rmot_sf_duration"],
-  "first_params": [0.40,              50.0e-3,            180.5e6,       180.0e6,       6.0e6,     1.1e6,     9.99,           5.0,           0.50,       30.0e3,                85.0e-3,              2.00,             180.0e6,          180.0e6,          9.0,               9.0,               25.0e-3],
-  "min_boundary": [0.20,              10.0e-3,            179.5e6,       179.5e6,       1.0e6,     0.1e6,     6.00,           0.5,           0.05,       10.0e3,                40.0e-3,              1.00,             179.0e6,          179.0e6,          0.1,               0.0,                0.0e-3],
-  "max_boundary": [0.60,             150.0e-3,            182.0e6,       182.0e6,      12.0e6,     6.0e6,     9.99,           8.00,           2.00,      100.0e3,               150.0e-3,              3.00,             181.0e6,          181.0e6,         31.5,              31.5,               80.0e-3]
+  "param_names":  ["rmot_bb_current", "rmot_bb_duration", "freq_high_i", "freq_high_f", "span_i",  "span_f",  "atten_ramp_i", "atten_ramp_f", "ramp_tau", "rmot_scan_frequency", "rmot_ramp_duration", "rmot_sf_current", "sf_freq",  "sf_atten", "rmot_sf_duration"],
+  "first_params": [0.40,              50.0e-3,            180.5e6,       180.0e6,       6.0e6,     1.1e6,     9.99,           5.0,           0.50,       30.0e3,                85.0e-3,              2.00,             180.7e6,    29.0,       25.0e-3],
+  "min_boundary": [0.20,              10.0e-3,            179.5e6,       179.5e6,       1.0e6,     0.1e6,     6.00,           0.5,           0.05,       10.0e3,                40.0e-3,              1.00,             179.0e6,    0.0,        0.0e-3],
+  "max_boundary": [0.60,             150.0e-3,            182.0e6,       182.0e6,      12.0e6,     6.0e6,     9.99,           8.00,           2.00,      100.0e3,               150.0e-3,              3.00,             181.0e6,    30.0,       80.0e-3]
 }

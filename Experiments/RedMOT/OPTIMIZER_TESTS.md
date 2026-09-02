@@ -13,7 +13,7 @@ Everything lives on the `transfer-optimizer` branch (off `merge_branches`).
 | `mloop_optimize.py` | External M-LOOP driver (owns the optimization loop). |
 | `mloop_stub_server.py` | Hardware-free stand-in for the ARTIQ server (synthetic cost) for dry-runs. |
 | `opt_stages/red_mot.json` | The single red-MOT stage: param names / bounds / first_params (names = `DEFAULTS` keys). |
-| `../Classes/CoolingClass.py` | `rmot_pulse()` reads per-shot values from `self.*`; `_dma_record()` records `rmot_ramp`/`rmot_sf`/field ramps from `self.*` (`record_sf_stage_arg` builds `rmot_sf`). |
+| `../Classes/CoolingClass.py` | `rmot_pulse()` reads per-shot values from `self.*` (single-frequency stage set inline from `sf_freq`/`sf_atten`); `_dma_record()` records `rmot_ramp` + the field ramps (`field_blue_up/down/to_bb/sf_down/blue_compress`); the optimizer erases all six then re-records via `_rerecord`. |
 | `../Classes/rois.json` | +`lattice_load` ROI scheme. |
 
 ## FILL these before hardware runs
@@ -125,7 +125,7 @@ landscape plot looks sensible.
 Copy the `best_params_red_mot.json` winners into the `DEFAULTS` block (they become
 the new baseline). This is a single red-MOT stage — no blue/transfer chaining. To
 also tune blue-MOT / capture knobs later, add their names + bounds to
-`red_mot.json` (they are already `DEFAULTS` keys); 17 params is already
+`red_mot.json` (they are already `DEFAULTS` keys); 15 params is already
 high-dimensional, so consider trimming rather than growing.
 
 ## Optional — verify the atoms are actually colder

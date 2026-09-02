@@ -54,8 +54,7 @@ class DipoleTrapTemperature_exp(Scan1D, TimeScan, EnvExperiment):
 
     def prepare(self):
         #prepare/initialize mot hardware and camera
-        self.MOTs.prepare_aoms()
-        self.MOTs.prepare_coils()
+        self.MOTs.prepare_cooling()
         self.Bragg.prepare_aoms()
 
         scan_points = np.array(list(self.get_scan_points()))
@@ -96,8 +95,7 @@ class DipoleTrapTemperature_exp(Scan1D, TimeScan, EnvExperiment):
 
         #initialize devices on host
         self.core.reset()
-        self.MOTs.init_coils()
-        self.MOTs.init_aoms()  # initializes whiling keeping them off
+        self.MOTs.init_cooling()
         self.Bragg.init_aoms()
         delay(10*ms)
 
@@ -105,15 +103,7 @@ class DipoleTrapTemperature_exp(Scan1D, TimeScan, EnvExperiment):
 
         self.MOTs.AOMs_off_all()
         self.MOTs.atom_source_off()
-
         delay(10*ms)
-        self.MOTs.init_rmot_dds(self.MOTs.rmot_freq_i,
-                                self.MOTs.rmot_freq_f,
-                                self.MOTs.rmot_freq_depth_i,
-                                self.MOTs.rmot_freq_depth_f,
-                                self.MOTs.freq_3D_red)
-
-
 
 
     @kernel
@@ -122,7 +112,7 @@ class DipoleTrapTemperature_exp(Scan1D, TimeScan, EnvExperiment):
         delay(10*ms)
 
       
-        self.MOTs.rMOT_pulse_new()
+        self.MOTs.rmot_pulse()
         delay(self.load_time)
         
         self.Bragg.aom_dipole.set_att(30.0) # turn off dipole
@@ -137,62 +127,62 @@ class DipoleTrapTemperature_exp(Scan1D, TimeScan, EnvExperiment):
         
         self.core.wait_until_mu(now_mu())
         self.Camera.process_image(bg_sub=True)
-        sigma_sq_scaled = self.Camera.process_gaussian(self._sigma_idx)
+        # sigma_sq_scaled = self.Camera.process_gaussian(self._sigma_idx)
         self.core.break_realtime()
 
         return 0
 
-    def after_scan(self):
-        data = np.array(self.get_dataset("gaussianparams"))
-        t = np.array(list(self.get_scan_points()))   # seconds
+    # def after_scan(self):
+    #     data = np.array(self.get_dataset("gaussianparams"))
+    #     t = np.array(list(self.get_scan_points()))   # seconds
 
-        cy_pix  = data[:, 1]   # column position = gravity direction
-        sx2_pix = data[:, 4]   # physical X (horizontal) variance, pix²
-        sy2_pix = data[:, 3]   # physical Y (vertical / gravity) variance, pix²
+    #     cy_pix  = data[:, 1]   # column position = gravity direction
+    #     sx2_pix = data[:, 4]   # physical X (horizontal) variance, pix²
+    #     sy2_pix = data[:, 3]   # physical Y (vertical / gravity) variance, pix²
 
-        try:
-            popt_g, _ = curve_fit(self.quadratic, t, cy_pix, maxfev=20000)
-        except Exception as exc:
-            raise RuntimeError(
-                "after_scan: gravity-calibration fit on column centroid "
-                "failed ({0}); cannot derive pix2um".format(exc))
+    #     try:
+    #         popt_g, _ = curve_fit(self.quadratic, t, cy_pix, maxfev=20000)
+    #     except Exception as exc:
+    #         raise RuntimeError(
+    #             "after_scan: gravity-calibration fit on column centroid "
+    #             "failed ({0}); cannot derive pix2um".format(exc))
 
-        g_coeff = abs(float(popt_g[0]))
-        pix2um = 9.81 / (2.0 * g_coeff) * 1e6
-        # Convert variances pixel² -> m²
-        pix2m = pix2um * 1e-6
-        sx2_m = sx2_pix * pix2m**2
-        sy2_m = sy2_pix * pix2m**2
+    #     g_coeff = abs(float(popt_g[0]))
+    #     pix2um = 9.81 / (2.0 * g_coeff) * 1e6
+    #     # Convert variances pixel² -> m²
+    #     pix2m = pix2um * 1e-6
+    #     sx2_m = sx2_pix * pix2m**2
+    #     sy2_m = sy2_pix * pix2m**2
 
-        M = constants.value('atomic mass constant') * 87.9056
-        Kb = constants.value('Boltzmann constant')
+    #     M = constants.value('atomic mass constant') * 87.9056
+    #     Kb = constants.value('Boltzmann constant')
 
-        def sigma_sq_model(tt, T, s0sq):
-            return s0sq + (Kb * T / M) * tt**2
+    #     def sigma_sq_model(tt, T, s0sq):
+    #         return s0sq + (Kb * T / M) * tt**2
 
-        def fit_one_axis(tt, ss):
-            popt, _ = curve_fit(sigma_sq_model, tt, ss,
-                                p0=[8e-6, ss[0]],
-                                bounds=([0.0, 0.0], [np.inf, np.inf]),
-                                maxfev=20000)
-            return popt
+    #     def fit_one_axis(tt, ss):
+    #         popt, _ = curve_fit(sigma_sq_model, tt, ss,
+    #                             p0=[8e-6, ss[0]],
+    #                             bounds=([0.0, 0.0], [np.inf, np.inf]),
+    #                             maxfev=20000)
+    #         return popt
 
 
-        popt_x = fit_one_axis(t, sx2_m)
-        popt_y = fit_one_axis(t, sy2_m)
+    #     popt_x = fit_one_axis(t, sx2_m)
+    #     popt_y = fit_one_axis(t, sy2_m)
 
-        T_x_uK = float(popt_x[0] * 1e6)
-        T_y_uK = float(popt_y[0] * 1e6)
-        sigma0_x_um = float(np.sqrt(max(popt_x[1], 0.0)) * 1e6)
-        sigma0_y_um = float(np.sqrt(max(popt_y[1], 0.0)) * 1e6)
+    #     T_x_uK = float(popt_x[0] * 1e6)
+    #     T_y_uK = float(popt_y[0] * 1e6)
+    #     sigma0_x_um = float(np.sqrt(max(popt_x[1], 0.0)) * 1e6)
+    #     sigma0_y_um = float(np.sqrt(max(popt_y[1], 0.0)) * 1e6)
 
-        self.set_dataset("TOF.pix2um",       float(pix2um),      broadcast=True)
-        self.set_dataset("TOF.T_x_uK",       T_x_uK,             broadcast=True)
-        self.set_dataset("TOF.T_y_uK",       T_y_uK,             broadcast=True)
-        self.set_dataset("TOF.sigma0_x_um",  sigma0_x_um,        broadcast=True)
-        self.set_dataset("TOF.sigma0_y_um",  sigma0_y_um,        broadcast=True)
-        self.set_dataset("TOF.fit_T_x",      np.asarray(popt_x), broadcast=True)
-        self.set_dataset("TOF.fit_T_y",      np.asarray(popt_y), broadcast=True)
+    #     self.set_dataset("TOF.pix2um",       float(pix2um),      broadcast=True)
+    #     self.set_dataset("TOF.T_x_uK",       T_x_uK,             broadcast=True)
+    #     self.set_dataset("TOF.T_y_uK",       T_y_uK,             broadcast=True)
+    #     self.set_dataset("TOF.sigma0_x_um",  sigma0_x_um,        broadcast=True)
+    #     self.set_dataset("TOF.sigma0_y_um",  sigma0_y_um,        broadcast=True)
+    #     self.set_dataset("TOF.fit_T_x",      np.asarray(popt_x), broadcast=True)
+    #     self.set_dataset("TOF.fit_T_y",      np.asarray(popt_y), broadcast=True)
 
-    def quadratic(self, x, a, b, c):
-        return a*x**2 + b*x + c
+    # def quadratic(self, x, a, b, c):
+    #     return a*x**2 + b*x + c

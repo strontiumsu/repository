@@ -18,10 +18,10 @@ class Bragg_set(EnvExperiment):
         self.bragg=_Bragg(self)
         self.setattr_device("ttl6") # triggering pulse
 
-        self.setattr_argument("Dipole", BooleanValue(True))
+        self.setattr_argument("Dipole", BooleanValue(False))
         self.setattr_argument("Sideband", BooleanValue(False))
         self.setattr_argument("Carrier", BooleanValue(False))
-        self.setattr_argument("Lattice", BooleanValue(True))
+        self.setattr_argument("Lattice", BooleanValue(False))
 
         
 

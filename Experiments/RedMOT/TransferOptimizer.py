@@ -78,44 +78,47 @@ PAUSE_POLL_S        = 2.0       # reference-poll interval while paused on drift
 # durations seconds, VVA atten DAC volts (0-9.99), Urukul atten dB.
 DEFAULTS = {
     # --- Blue MOT + blue->red capture ---
-    "bmot_current":        5.0,
-    "bmot_ramp_duration":  50e-3,
-    "bmot_load_duration":  0.5,
-    "binc":                1.0,
-    "blue_transfer_time":  50e-3,
-    "blue_att_i":          6.0,
-    "blue_att_f":          30.0,
+    "bmot_current":         4.6,
+    "bmot_ramp_duration":   50e-3,
+    "bmot_load_duration":   1.0,
+    "binc":                 1.0,       # extra coil current during the blue->red capture ramp (A)
+    "bmot_compress_atten":  30.0,      # blue AOM atten at the end of the capture (compress) ramp (dB)
+    "bmot_compress_time":   50e-3,     # duration of the field_blue_compress capture ramp (s)
     # --- Broadband red MOT + ramp-to-broadband ---
-    "rmot_bb_current":     0.4,
-    "rmot_bb_duration":    50e-3,
-    "to_bb_time":          15e-3,
+    "rmot_bb_current":      0.4,
+    "rmot_bb_duration":     50e-3,
+    "to_bb_time":           10e-3,
     # --- Compression sweep ---
-    "freq_high_i":         180.5e6,   # swept top of the modulation-depth sweep, start
-    "freq_high_f":         180.0e6,   # swept top, end
-    "span_i":              6.0e6,     # modulation depth below the top, start
-    "span_f":              1.1e6,     # modulation depth, end
-    "atten_ramp_i":        9.99,      # VVA (external) atten ramp, start (DAC V)
-    "atten_ramp_f":        5.0,      # VVA atten ramp, end
-    "ramp_tau":            0.5,       # shape time-constant for exp/expinv shapes
-    "rmot_scan_frequency": 30e3,      # DRG modulation frequency
-    "rmot_ramp_duration":  85e-3,
-    "rmot_sf_current":     2.0,
-    "shape_freq":          "lin",     # freq-span shape (categorical; set by hand)
-    "shape_atten":         "exp",     # VVA-atten shape (categorical; set by hand)
-    # --- Single-frequency stage (Urukul RF atten stepped) ---
-    "rmot_sf_freq_i":      180.0e6,
-    "rmot_sf_freq_f":      180.0e6,
-    "rmot_sf_atten_i":     9.0,       # dB
-    "rmot_sf_atten_f":     9.0,       # dB
-    "rmot_sf_duration":    1e-3,
+    "freq_high_i":          180.4e6,   # swept top of the modulation-depth sweep, start
+    "freq_high_f":          179.5e6,   # swept top, end
+    "span_i":               5.5e6,     # modulation depth below the top, start
+    "span_f":               1.0e6,     # modulation depth, end
+    "atten_ramp_i":         9.99,      # VVA (external) atten ramp, start (DAC V)
+    "atten_ramp_f":         1.1,       # VVA atten ramp, end (DAC V)
+    "ramp_tau":             0.2,       # shape time-constant for exp/expinv shapes
+    "rmot_scan_frequency":  30e3,      # DRG modulation frequency
+    "rmot_ramp_duration":   85e-3,
+    "rmot_sf_current":      2.3,
+    "shape_freq":           "lin",     # freq-span shape (categorical; set by hand)
+    "shape_atten":          "exp",     # VVA-atten shape (categorical; set by hand)
+    # --- Single-frequency stage (single tone; set inline in rmot_pulse) ---
+    "sf_freq":              180.7e6,   # single-frequency stage tone (Hz)
+    "sf_atten":             29.0,      # single-frequency stage Urukul RF atten (dB)
+    "rmot_sf_duration":     15e-3,     # hold in the sf stage (0 -> skip sf stage)
+    # --- Red-MOT shielding (operational; leave out of stage param_names) ---
+    "shield":               True,      # shield the red MOT during blue load (bool)
+    "shield_atten":         7.0,       # shield Urukul RF atten (dB)
+    "shield_freq":          179.9e6,   # shield tone (Hz)
     # --- Beam power + imaging ---
-    "atten_3D":            6.0,       # 3D blue AOM atten (dB)
-    "atten_3D_red":        9.0,       # 3D red AOM atten (dB)
-    "freq_3D":             180.0e6,   # 3D blue MOT-loading frequency
-    "f_MOT3D_detect":      180.0e6,   # 3D blue imaging frequency
-    "Detection_pulse_time": 0.02e-3,  # imaging pulse length
+    "atten_3D":             6.0,       # 3D blue AOM atten (dB); also the start of the compress atten ramp
+    "scale_3D":             0.8,       # 3D blue AOM amplitude
+    "atten_3D_red":         7.0,       # 3D red AOM atten (dB)
+    "scale_3D_red":         0.8,       # 3D red AOM amplitude
+    "freq_3D":              180.0e6,   # 3D blue MOT-loading frequency
+    "f_MOT3D_detect":       180.0e6,   # 3D blue imaging frequency
+    "Detection_pulse_time": 0.02e-3,   # imaging pulse length
     # --- Optimizer shot ---
-    "hold_time":           0e-3,     # shallow-lattice hold: hot atoms escape (the T proxy)
+    "hold_time":            0e-3,      # shallow-lattice hold: hot atoms escape (the T proxy)
 }
 
 
@@ -191,9 +194,9 @@ class TransferOptimizer_exp(EnvExperiment):
 
         # fail fast on a typo'd DEFAULTS key (must be a real settable variable)
         for k in DEFAULTS:
-            if not (hasattr(self.MOTs, k) or hasattr(self, k)):
+            if not (hasattr(self.MOTs, k) or hasattr(self.MOTs.dds, k) or hasattr(self, k)):
                 raise KeyError(
-                    "DEFAULTS key '{0}' is not a _Cooling or optimizer attribute".format(k))
+                    "DEFAULTS key '{0}' is not a _Cooling / dds / optimizer attribute".format(k))
 
         self.MOTs.prepare_cooling()
         self.Bragg.prepare_aoms()
@@ -212,11 +215,20 @@ class TransferOptimizer_exp(EnvExperiment):
     # SHOT ENGINE — the one clean entry point
     # ==================================================================
     def _push(self, params):
-        """Set every variable in `params` onto its owner: a _Cooling attribute if
-        one exists by that name, else an optimizer attribute (e.g. hold_time)."""
+        """Set every variable in `params` onto EVERY owner that has it: the optimizer
+        (e.g. hold_time), the _Cooling instance, and the DDS instance. Writing the
+        DDS instance matters — DDSClass.prepare_aoms() reads scale_/atten_/freq_* off
+        `dds`, so a DDS override set only on _Cooling (a build-time mirror) is silently
+        ignored. Mirrors rmot_pulse_sweep._apply_value."""
         for k, v in params.items():
-            tgt = self.MOTs if hasattr(self.MOTs, k) else self
-            setattr(tgt, k, v)
+            hit = False
+            for tgt in (self, self.MOTs, self.MOTs.dds):
+                if hasattr(tgt, k):
+                    setattr(tgt, k, v)
+                    hit = True
+            if not hit:
+                raise KeyError(
+                    "param '{0}' not on optimizer / _Cooling / dds".format(k))
 
     def shot(self, **overrides):
         """Run ONE shot: DEFAULTS overridden by `overrides`, return lattice counts.
@@ -227,22 +239,36 @@ class TransferOptimizer_exp(EnvExperiment):
         self._push({**DEFAULTS, **overrides})
         self.MOTs.prepare_cooling()          # host: recompute every ramp array
         self._ensure_camera()
-        counts = int(self._shot_kernel())    # kernel: re-record DMA + pulse + image
+        self._rerecord()                     # kernel: erase all DMA traces + re-record them
+        counts = int(self._shot_kernel())    # kernel: pulse + image
         self._frames_since_arm += 1
         return counts
 
     @kernel
+    def _rerecord(self):
+        # Re-record the DMA traces for the just-prepared candidate (same method as
+        # rmot_pulse_sweep._rerecord). Erase every trace FIRST, in the reverse of the
+        # order _dma_record() lays them down, so the top of the core-device SDRAM
+        # frees cleanly before the new (variable-size) traces are re-allocated.
+        # Re-recording variable-size traces WITHOUT erasing fragments the SDRAM until
+        # the runtime OOM-panics and the Kasli stops answering the network (power-
+        # cycle to clear). All six traces always exist here (init_all -> init_cooling
+        # -> _dma_record records them), so every erase targets a live trace.
+        self.core.break_realtime()
+        self.MOTs.core_dma.erase("field_blue_compress")
+        self.MOTs.core_dma.erase("field_sf_down")
+        self.MOTs.core_dma.erase("field_to_bb")
+        self.MOTs.core_dma.erase("field_blue_down")
+        self.MOTs.core_dma.erase("field_blue_up")
+        self.MOTs.core_dma.erase("rmot_ramp")
+        self.MOTs._dma_record()
+        self.core.break_realtime()
+
+    @kernel
     def _shot_kernel(self) -> TInt32:
         # lattice/dipole are already on (from init_all); rmot_pulse loads into them.
-        # _dma_record_dynamic re-records ONLY the traces that change per candidate
-        # (rmot_ramp / rmot_sf / field_to_bb / field_sf_down) from the self.MOTs.*
-        # arrays just recomputed by prepare_cooling(), erasing each first so the
-        # core-device SDRAM is freed before re-allocation (no fragmentation/OOM;
-        # the invariant blue field ramps stay as recorded once in init_cooling).
-        # The arrays are read as attributes, NOT passed as kernel args (a large
-        # list argument overflows ARTIQ's debug-info column limit). This ARTIQ
-        # recompiles every kernel call regardless.
-        self.MOTs._dma_record_dynamic()
+        # DMA traces were just re-recorded by _rerecord() from the self.MOTs.* arrays
+        # recomputed by prepare_cooling().
         self.MOTs.rmot_pulse()
         delay(self.hold_time)                          # shallow lattice: hot atoms escape
         self.MOTs.take_MOT_image(self.Camera)          # fluorescence imaging
